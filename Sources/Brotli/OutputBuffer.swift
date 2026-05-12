@@ -48,22 +48,22 @@ struct OutputBuffer {
     /// Append a transformed dictionary word. Wires `Dictionary` +
     /// `Transforms` into the output stream; called when a backward
     /// reference's distance exceeds the in-window output size.
-    ///
-    /// **Stage B:** depends on `Dictionary.swift` (generated in T12) and
-    /// `Transforms.swift` (T13). Once those land, this implementation
-    /// is straightforward.
     mutating func appendDictionaryWord(
         length: Int,
         index: Int,
         transform: Int
     ) throws(BrotliError) {
-        // Stage B: implement once Dictionary + Transforms exist.
-        //   let offset = Dictionary.offsets[length] + index * length
-        //   let word = Dictionary.bytes[offset ..< offset + length]
-        //   let transformed = try Transforms.apply(transform, to: word[...])
-        //   if storage.count + transformed.count > cap { throw .outputTooLarge }
-        //   storage.append(contentsOf: transformed)
-        throw .invalidDictionaryReference
+        guard length >= 4 && length <= 24 else {
+            throw .invalidDictionaryReference
+        }
+        guard index >= 0 && index < Dictionary.counts[length] else {
+            throw .invalidDictionaryReference
+        }
+        let offset = Dictionary.offsets[length] + index * length
+        let wordSlice = Dictionary.bytes[offset ..< offset + length]
+        let transformed = try Transforms.apply(transform, to: wordSlice)
+        if storage.count + transformed.count > cap { throw .outputTooLarge }
+        storage.append(contentsOf: transformed)
     }
 
     /// Last two bytes (for context modes); returns 0 for missing bytes.

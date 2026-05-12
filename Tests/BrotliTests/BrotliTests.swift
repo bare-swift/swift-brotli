@@ -162,3 +162,79 @@ struct OutputBufferTests {
         #expect(b.lastTwo == (0x43, 0x42))
     }
 }
+
+@Suite("Transforms")
+struct TransformsTests {
+    @Test("table has exactly 121 entries")
+    func tableSize() {
+        #expect(Transforms.table.count == 121)
+    }
+
+    @Test("prefixSuffix has exactly 50 entries")
+    func psCount() {
+        #expect(Transforms.prefixSuffix.count == 50)
+    }
+
+    @Test("transform 0 is identity, identity, identity (\"\", word, \"\")")
+    func transform0() throws {
+        let word: [UInt8] = [0x41, 0x42, 0x43]  // "ABC"
+        let out = try Transforms.apply(0, to: word[...])
+        // table[0] = (49, .identity, 49); prefixSuffix[49] is "" (empty).
+        #expect(out == word)
+    }
+
+    @Test("transform 1 appends ' '")
+    func transform1() throws {
+        let word: [UInt8] = [0x41, 0x42]  // "AB"
+        let out = try Transforms.apply(1, to: word[...])
+        // table[1] = (49, .identity, 0); prefixSuffix[0] is " ".
+        #expect(out == [0x41, 0x42, 0x20])
+    }
+
+    @Test("transform 2 wraps word with leading + trailing space")
+    func transform2() throws {
+        let word: [UInt8] = [0x66, 0x6F, 0x6F]  // "foo"
+        let out = try Transforms.apply(2, to: word[...])
+        // table[2] = (0, .identity, 0); prefixSuffix[0] is " ".
+        #expect(out == [0x20, 0x66, 0x6F, 0x6F, 0x20])
+    }
+
+    @Test("uppercaseFirst on lowercase ASCII flips bit 5")
+    func uppercaseFirstASCII() throws {
+        let word: [UInt8] = [0x61, 0x62, 0x63]  // "abc"
+        let out = try Transforms.apply(4, to: word[...])
+        // table[4] = (49, .uppercaseFirst, 0); prefix "", suffix " ".
+        #expect(out == [0x41, 0x62, 0x63, 0x20])  // "Abc "
+    }
+
+    @Test("uppercaseAll flips all ASCII a-z")
+    func uppercaseAllASCII() throws {
+        let word: [UInt8] = [0x68, 0x65, 0x6C, 0x6C, 0x6F]  // "hello"
+        let out = try Transforms.apply(44, to: word[...])
+        // table[44] = (49, .uppercaseAll, 49); prefix "", suffix "".
+        #expect(out == [0x48, 0x45, 0x4C, 0x4C, 0x4F])  // "HELLO"
+    }
+
+    @Test("omitFirst1 drops first byte")
+    func omitFirst1() throws {
+        let word: [UInt8] = [0x41, 0x42, 0x43]
+        let out = try Transforms.apply(3, to: word[...])
+        // table[3] = (49, .omitFirst1, 49). Just drop first byte.
+        #expect(out == [0x42, 0x43])
+    }
+
+    @Test("OutputBuffer.appendDictionaryWord wires through to Transforms")
+    func appendDictionaryWord() throws {
+        var b = OutputBuffer(cap: 1024)
+        // Length-4 word at index 0, transform 0 (identity, no prefix/suffix).
+        // Dictionary.bytes[0..4] is the first 4-byte word.
+        try b.appendDictionaryWord(length: 4, index: 0, transform: 0)
+        #expect(b.count == 4)
+        // The bytes should match the first 4 bytes of the dictionary.
+        let expected: [UInt8] = [
+            Dictionary.bytes[0], Dictionary.bytes[1],
+            Dictionary.bytes[2], Dictionary.bytes[3],
+        ]
+        #expect(Array(b.toBytes().storage) == expected)
+    }
+}

@@ -1,0 +1,33 @@
+{
+  "originHash" : "4b5deb1b735d0fac2d6ae7f2e6f8c36f20e89e4d7b14e36cb0622c2fc56ec760",
+  "pins" : [
+    {
+      "identity" : "swift-bytes",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/bare-swift/swift-bytes.git",
+      "state" : {
+        "revision" : "834782ef43eb133a1d2834853e2f323efb425202",
+        "version" : "0.1.0"
+      }
+    },
+    {
+      "identity" : "swift-docc-plugin",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/swiftlang/swift-docc-plugin.git",
+      "state" : {
+        "revision" : "647c708be89f834fa6a6d4945442793a77ddf5b6",
+        "version" : "1.5.0"
+      }
+    },
+    {
+      "identity" : "swift-docc-symbolkit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/swiftlang/swift-docc-symbolkit",
+      "state" : {
+        "revision" : "b45d1f2ed151d057b54504d653e0da5552844e34",
+        "version" : "1.0.0"
+      }
+    }
+  ],
+  "version" : 3
+}
