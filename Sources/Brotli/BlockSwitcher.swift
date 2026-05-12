@@ -6,69 +6,114 @@
 /// One instance per alphabet (L, I, D) per meta-block. Tracks the
 /// current block type and the remaining block length; when the block
 /// length runs out, reads the next (type, length) pair from the stream.
-///
-/// **Stage B handoff.** Scaffold in place; the read/advance bodies fill
-/// in during Stage B once `PrefixCode.readSymbol` is implemented.
 struct BlockSwitcher {
-    /// Number of distinct block types for this alphabet (NBLTYPES{L,I,D}).
-    /// When `nblTypes == 1`, block switching is disabled and the single
-    /// block lasts the entire meta-block.
+    /// Number of distinct block types for this alphabet
+    /// (NBLTYPESL / NBLTYPESI / NBLTYPESD).
     let nblTypes: Int
 
     /// Prefix code over the block-type alphabet (size `nblTypes + 2`).
     /// `nil` when `nblTypes == 1`.
     private var typeCode: PrefixCode?
 
-    /// Prefix code over the 26-symbol block-length alphabet (§ 6 Table 5).
+    /// Prefix code over the 26-symbol block-length alphabet.
     /// `nil` when `nblTypes == 1`.
     private var lengthCode: PrefixCode?
 
-    /// Current active block type (0..nblTypes-1).
-    private(set) var currentType: Int
+    /// Current active block type (0..nblTypes-1). Initialized to 0 per § 6.
+    private(set) var currentType: Int = 0
 
     /// Number of symbols left in the current block. `Int.max` when block
     /// switching is disabled.
     private(set) var remainingLength: Int
 
-    /// Two-element ring buffer of (previous, second-previous) block types,
-    /// referenced by block-type code values 0 and 1 per § 6.
-    private var prevType: Int
-    private var prevPrevType: Int
+    /// "Previous block type" per § 6. Initialized to 1 (so that a
+    /// type-symbol-0 immediately after the meta-block header switches
+    /// to type 1).
+    private var prevType: Int = 1
 
-    /// Read the NBLTYPES{L,I,D} encoding from the bit stream per § 9.2,
-    /// plus the type/length prefix codes and the initial block length.
-    /// **Stage B:** implement.
+    private init(nblTypes: Int,
+                 typeCode: PrefixCode?,
+                 lengthCode: PrefixCode?,
+                 initialLength: Int) {
+        self.nblTypes = nblTypes
+        self.typeCode = typeCode
+        self.lengthCode = lengthCode
+        self.remainingLength = initialLength
+    }
+
+    /// Read NBLTYPES + optional prefix codes + initial block length from
+    /// the meta-block header per § 9.2 + § 6.
     static func read(_ r: inout BitReader) throws(BrotliError) -> BlockSwitcher {
-        // § 9.2 NBLTYPES encoding:
-        //   first bit:
-        //     0 → NBLTYPES = 1 (no further reads, block switching disabled)
-        //     1 → read 3 more bits to select a base + extra-bit count, then
-        //         readBits(extraBits). See § 9.2 Table 9.
-        // If NBLTYPES > 1:
-        //   typeCode = PrefixCode.read(r, alphabetSize: NBLTYPES + 2)
-        //   lengthCode = PrefixCode.read(r, alphabetSize: 26)
-        //   initial symbol = lengthCode.readSymbol(r) → (base, extraBits) per § 6 Table 5
-        //   initial remaining = base + readBits(extraBits)
-        fatalError("BlockSwitcher.read — implement in Stage B per RFC 7932 § 6 + § 9.2")
+        let nblTypes = try readVariableLengthCount(&r)
+        if nblTypes == 1 {
+            return BlockSwitcher(nblTypes: 1, typeCode: nil, lengthCode: nil, initialLength: Int.max)
+        }
+        let typeCode = try PrefixCode.read(&r, alphabetSize: nblTypes + 2)
+        let lengthCode = try PrefixCode.read(&r, alphabetSize: 26)
+        var lengthCode2 = lengthCode
+        let initial = try readBlockLength(&r, code: &lengthCode2)
+        return BlockSwitcher(nblTypes: nblTypes,
+                             typeCode: typeCode,
+                             lengthCode: lengthCode2,
+                             initialLength: initial)
     }
 
     /// Consume one symbol's worth of block-budget; switch type+length when
-    /// the current block runs out. **Stage B:** implement.
+    /// the current block runs out.
     mutating func advance(_ r: inout BitReader) throws(BrotliError) {
         remainingLength -= 1
-        if remainingLength > 0 || nblTypes == 1 {
-            return
+        if remainingLength > 0 || nblTypes == 1 { return }
+        // Read next (type, length).
+        guard let tCode = typeCode, var lCode = lengthCode else {
+            // Should not happen given nblTypes > 1.
+            throw BrotliError.invalidBlockType
         }
-        // Read next type code:
-        //   value 0 → currentType = prevPrevType (second-previous)
-        //   value 1 → currentType = prevType (previous)
-        //   value k ≥ 2 → currentType = k - 2 (direct type index 0..NBLTYPES-1)
-        // Update the (prevType, prevPrevType) ring accordingly.
-        // Read next length code via lengthCode + extra bits.
-        fatalError("BlockSwitcher.advance — implement in Stage B per RFC 7932 § 6")
+        let typeSym = try tCode.readSymbol(&r)
+        let saved = currentType
+        switch typeSym {
+        case 0:
+            // Switch to "the type that preceded the current type".
+            currentType = prevType
+        case 1:
+            // Switch to current_type + 1 mod NBLTYPES.
+            currentType = (currentType + 1) % nblTypes
+        default:
+            // Direct: typeSym - 2.
+            let direct = typeSym - 2
+            guard direct >= 0 && direct < nblTypes else {
+                throw BrotliError.invalidBlockType
+            }
+            currentType = direct
+        }
+        prevType = saved
+        remainingLength = try BlockSwitcher.readBlockLength(&r, code: &lCode)
+        lengthCode = lCode
     }
 
-    /// § 6 Table 5: block-length code base + extra bits.
+    /// § 9.2 NBLTYPES-style variable-length count encoding. Also used for
+    /// NTREESL / NTREESD.
+    static func readVariableLengthCount(_ r: inout BitReader) throws(BrotliError) -> Int {
+        let lead = try r.readBit()
+        if lead == 0 { return 1 }
+        let marker = Int(try r.readBits(3))
+        if marker == 0 { return 2 }
+        let extras = Int(try r.readBits(marker))
+        let base = (1 << marker) + 1
+        return base + extras
+    }
+
+    /// § 6 block-length: read a length-code symbol, then `extraBits[code]`
+    /// extra bits; return `base[code] + extras`.
+    static func readBlockLength(_ r: inout BitReader, code: inout PrefixCode) throws(BrotliError) -> Int {
+        let sym = try code.readSymbol(&r)
+        guard sym >= 0 && sym < 26 else { throw BrotliError.invalidPrefixCode }
+        let base = lengthBase[sym]
+        let extra = lengthExtra[sym]
+        let extraValue = extra == 0 ? 0 : Int(try r.readBits(extra))
+        return base + extraValue
+    }
+
+    /// § 6 Table 5: block-length code base + extra bits (26 codes).
     static let lengthBase: [Int]  = [1, 5, 9, 13, 17, 25, 33, 41, 49, 65, 81, 97, 113, 145, 177, 209, 241, 305, 369, 497, 753, 1265, 2289, 4337, 8433, 16625]
-    static let lengthExtra: [Int] = [2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 6, 6, 7, 8, 9, 10, 11, 12, 13, 24]
+    static let lengthExtra: [Int] = [2, 2, 2,  2,  3,  3,  3,  3,  4,  4,  4,  4,   5,   5,   5,   5,   6,   6,   7,   8,   9,    10,    11,    12,    13,    24]
 }
