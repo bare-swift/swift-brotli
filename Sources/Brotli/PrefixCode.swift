@@ -81,6 +81,10 @@ struct PrefixCode {
             return
         }
         // General canonical Huffman construction per RFC 1951 § 3.2.2.
+        // Zero-length symbols don't participate in the code; force blCount[0]
+        // to 0 so the (code + blCount[bits-1]) << 1 recurrence starts cleanly
+        // at bits=1.
+        blCount[0] = 0
         var nextCode = [UInt32](repeating: 0, count: maxBits + 2)
         var code: UInt32 = 0
         for bits in 1...maxBits {
@@ -298,12 +302,15 @@ struct PrefixCode {
             case 16:
                 let extra = Int(try r.readBits(2))
                 let newCount: Int
+                let oldChainCount: Int
                 if prevRepeatSym == 16 {
                     newCount = 4 * (prevRepeatCount - 2) + 3 + extra
+                    oldChainCount = prevRepeatCount
                 } else {
                     newCount = 3 + extra
+                    oldChainCount = 0  // chain reset
                 }
-                let emit = newCount - prevRepeatCount
+                let emit = newCount - oldChainCount
                 if emit <= 0 { throw BrotliError.invalidPrefixCode }
                 for _ in 0..<emit {
                     if i >= alphabetSize { throw BrotliError.invalidPrefixCode }
@@ -316,12 +323,15 @@ struct PrefixCode {
             case 17:
                 let extra = Int(try r.readBits(3))
                 let newCount: Int
+                let oldChainCount: Int
                 if prevRepeatSym == 17 {
                     newCount = 8 * (prevRepeatCount - 2) + 3 + extra
+                    oldChainCount = prevRepeatCount
                 } else {
                     newCount = 3 + extra
+                    oldChainCount = 0  // chain reset
                 }
-                let emit = newCount - prevRepeatCount
+                let emit = newCount - oldChainCount
                 if emit <= 0 { throw BrotliError.invalidPrefixCode }
                 for _ in 0..<emit {
                     if i >= alphabetSize { throw BrotliError.invalidPrefixCode }
