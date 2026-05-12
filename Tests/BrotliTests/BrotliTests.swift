@@ -341,3 +341,53 @@ struct PrefixCodeTests {
         }
     }
 }
+
+@Suite("InsertCopy.decompose")
+struct InsertCopyTests {
+    @Test("symbol 0 → cell 0: insertCode=0, copyCode=0, useDistance=false")
+    func cell0First() throws {
+        let r = try InsertCopy.decompose(0)
+        #expect(r.insertCode == 0)
+        #expect(r.copyCode == 0)
+        #expect(r.useDistance == false)
+    }
+
+    @Test("symbol 63 → cell 0 last: insertCode=7, copyCode=7, useDistance=false")
+    func cell0Last() throws {
+        let r = try InsertCopy.decompose(63)
+        #expect(r.insertCode == 7)
+        #expect(r.copyCode == 7)
+        #expect(r.useDistance == false)
+    }
+
+    @Test("symbol 64 → cell 1: insertCode=0, copyCode=8, useDistance=false (distance reuse)")
+    func cell1First() throws {
+        let r = try InsertCopy.decompose(64)
+        #expect(r.insertCode == 0)
+        #expect(r.copyCode == 8)
+        #expect(r.useDistance == false)
+    }
+
+    @Test("symbol 128 → cell 2: useDistance=true (first distance-reading cell)")
+    func cell2First() throws {
+        let r = try InsertCopy.decompose(128)
+        #expect(r.insertCode == 0)
+        #expect(r.copyCode == 0)
+        #expect(r.useDistance == true)
+    }
+
+    @Test("symbol 703 → cell 10 last: insertCode=23, copyCode=23, useDistance=true")
+    func lastSymbol() throws {
+        let r = try InsertCopy.decompose(703)
+        #expect(r.insertCode == 23)
+        #expect(r.copyCode == 23)
+        #expect(r.useDistance == true)
+    }
+
+    @Test("out-of-range symbol throws")
+    func outOfRange() {
+        #expect(throws: BrotliError.invalidPrefixCode) {
+            _ = try InsertCopy.decompose(704)
+        }
+    }
+}
