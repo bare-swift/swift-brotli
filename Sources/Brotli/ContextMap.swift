@@ -193,3 +193,78 @@ enum ContextMap {
         6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 7,
     ]
 }
+
+extension ContextMap {
+    /// Read a context map per RFC 7932 § 7.3.
+    /// - `size`: total bytes in the map (64 * NBLTYPESL for literals,
+    ///   4 * NBLTYPESD for distances).
+    /// - `ntrees`: max value + 1 (the NTREESL or NTREESD value).
+    /// Returns the decoded `[UInt8]` map of length `size`.
+    static func readContextMap(
+        _ r: inout BitReader,
+        size: Int,
+        ntrees: Int
+    ) throws(BrotliError) -> [UInt8] {
+        if ntrees <= 1 {
+            return [UInt8](repeating: 0, count: size)
+        }
+        // RLEMAX: 1 bit; if 0 → RLEMAX=0. If 1 → read 4 more bits, RLEMAX = value + 1.
+        let first = try r.readBit()
+        let rlemax: Int
+        if first == 0 {
+            rlemax = 0
+        } else {
+            let rest = Int(try r.readBits(4))
+            rlemax = rest + 1
+        }
+        let alphabetSize = rlemax + ntrees
+        var prefix = try PrefixCode.read(&r, alphabetSize: alphabetSize)
+        var map = [UInt8](repeating: 0, count: size)
+        var i = 0
+        while i < size {
+            let sym = try prefix.readSymbol(&r)
+            if sym == 0 {
+                map[i] = 0
+                i += 1
+            } else if sym <= rlemax {
+                let extra = Int(try r.readBits(sym))
+                let runLen = (1 << sym) + extra
+                if i + runLen > size {
+                    throw .invalidHeader
+                }
+                // map[i..i+runLen] already zero from init.
+                i += runLen
+            } else {
+                let value = sym - rlemax
+                if value > 255 {
+                    throw .invalidHeader
+                }
+                map[i] = UInt8(value)
+                i += 1
+            }
+        }
+        // IMTF bit.
+        let imtfBit = try r.readBit()
+        if imtfBit == 1 {
+            inverseMoveToFront(&map)
+        }
+        return map
+    }
+
+    /// Inverse Move-to-Front transform per RFC 7932 § 7.3.
+    static func inverseMoveToFront(_ v: inout [UInt8]) {
+        var mtf = [UInt8](repeating: 0, count: 256)
+        for i in 0..<256 { mtf[i] = UInt8(i) }
+        for i in 0..<v.count {
+            let index = Int(v[i])
+            let value = mtf[index]
+            v[i] = value
+            if index > 0 {
+                for k in stride(from: index, to: 0, by: -1) {
+                    mtf[k] = mtf[k - 1]
+                }
+                mtf[0] = value
+            }
+        }
+    }
+}
