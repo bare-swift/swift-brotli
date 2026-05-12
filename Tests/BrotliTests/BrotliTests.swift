@@ -238,3 +238,43 @@ struct TransformsTests {
         #expect(Array(b.toBytes().storage) == expected)
     }
 }
+
+@Suite("ContextMap LUTs")
+struct ContextMapLUTTests {
+    @Test("all four LUT pairs are 256 entries each")
+    func allLUTsCorrectSize() {
+        #expect(ContextMap.lut0_lsb6.count == 256)
+        #expect(ContextMap.lut1_lsb6.count == 256)
+        #expect(ContextMap.lut0_msb6.count == 256)
+        #expect(ContextMap.lut1_msb6.count == 256)
+        #expect(ContextMap.lut0_utf8.count == 256)
+        #expect(ContextMap.lut1_utf8.count == 256)
+        #expect(ContextMap.lut0_signed.count == 256)
+        #expect(ContextMap.lut1_signed.count == 256)
+    }
+
+    @Test("LSB6 mode returns low 6 bits of p1")
+    func lsb6Mode() {
+        let m: ContextMode = .lsb6
+        #expect(m.contextID(p1: 0x00, p2: 0xFF) == 0)
+        #expect(m.contextID(p1: 0x3F, p2: 0x00) == 0x3F)
+        #expect(m.contextID(p1: 0xC1, p2: 0x77) == 0x01)
+    }
+
+    @Test("MSB6 mode returns high 6 bits of p1")
+    func msb6Mode() {
+        let m: ContextMode = .msb6
+        #expect(m.contextID(p1: 0x00, p2: 0xFF) == 0)
+        #expect(m.contextID(p1: 0xFC, p2: 0x00) == 0x3F)
+        #expect(m.contextID(p1: 0x80, p2: 0xAA) == 0x20)
+    }
+
+    @Test("UTF8 mode on ASCII letter combines lut0 + lut1")
+    func utf8Mode() {
+        // 'a' (0x61) → lut0[0x61] = 56 (lower-case consonant slot); 'b' (0x62)
+        // → lut1[0x62] = 3. Combined 56 | 3 = 59.
+        let m: ContextMode = .utf8
+        let ctx = m.contextID(p1: 0x61, p2: 0x62)
+        #expect(ctx == 59)
+    }
+}
