@@ -507,3 +507,31 @@ struct BrotliVectorTests {
         #expect(plain.storage == ContiguousArray(repeating: UInt8(0x61), count: 1024))
     }
 }
+
+@Suite("Brotli decode errors")
+struct BrotliErrorTests {
+    @Test("empty input throws .truncated")
+    func emptyTruncated() {
+        #expect(throws: BrotliError.truncated) {
+            try Brotli.decode(Bytes())
+        }
+    }
+
+    @Test("truncated mid-meta-block-header throws")
+    func truncatedHeader() {
+        // 0x80 = bit 0 = 0 (WBITS=16), then header bits start. Not enough
+        // bytes to even read the ISLAST bit cleanly past the WBITS — reaches
+        // .truncated from BitReader.
+        #expect(throws: BrotliError.truncated) {
+            try Brotli.decode(Bytes([0x80]))
+        }
+    }
+
+    @Test("reserved WBITS encoding throws .invalidHeader")
+    func reservedWbits() {
+        // bit 0 = 1, bits 1..3 = 000, bits 4..6 = 000 → reserved per § 9.1.
+        #expect(throws: BrotliError.invalidHeader) {
+            try Brotli.decode(Bytes([0x01, 0x00]))
+        }
+    }
+}
