@@ -4,5 +4,27 @@ Copyright (c) 2026 The bare-swift Project Authors.
 This product is licensed under the Apache License, Version 2.0, with LLVM
 exceptions. See LICENSE for details.
 
-This product includes software derived from the Rust crate `(none)`.
-See (none) for the original sources and license.
+This product implements RFC 7932 (Brotli Compressed Data Format).
+
+The following data-only artifacts are derived from Google's brotli project
+(https://github.com/google/brotli), which is licensed under the MIT License
+(see https://github.com/google/brotli/blob/master/LICENSE):
+
+  * Sources/Brotli/Dictionary.swift — the 122 784-byte Brotli static
+    dictionary, embedded byte-for-byte from c/common/dictionary.bin.
+    Source SHA-256:
+    20e42eb1b511c21806d4d227d07e5dd06877d8ce7b3a817f378f313653f35c70.
+
+  * Sources/Brotli/Transforms.swift — the 121-entry static-dictionary
+    transforms table and the 50-entry prefix/suffix string pool,
+    extracted from c/common/transform.c.
+
+  * Sources/Brotli/ContextMap.swift — the four context-mode lookup tables
+    (LSB6, MSB6, UTF8, Signed), each 2 × 256 bytes, extracted from
+    c/common/context.c.
+
+These are data, not Google code: swift-brotli does not bundle, link to,
+or runtime-depend on the Google brotli C library, decoder, or encoder.
+The algorithmic implementation in Sources/Brotli/*.swift (excluding the
+three data-only files above) is a clean-room Swift implementation of
+RFC 7932.
