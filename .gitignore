@@ -1,7 +1,4 @@
-.DS_Store
-.build/
-.swiftpm/
-.vscode/
-.idea/
-DerivedData/
-Package.resolved
+.build
+.swiftpm
+*.xcodeproj
+/tmp/
