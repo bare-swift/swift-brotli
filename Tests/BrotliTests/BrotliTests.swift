@@ -102,3 +102,63 @@ struct MetaBlockHeaderTests {
         #expect(h.mlen == 0)
     }
 }
+
+@Suite("OutputBuffer")
+struct OutputBufferTests {
+    @Test("appendLiteral grows storage")
+    func appendLiteral() throws {
+        var b = OutputBuffer(cap: 1024)
+        try b.appendLiteral(0x41)
+        try b.appendLiteral(0x42)
+        #expect(b.count == 2)
+        #expect(b.toBytes().storage == [0x41, 0x42])
+    }
+
+    @Test("copy back-reference (no overlap)")
+    func copyNoOverlap() throws {
+        var b = OutputBuffer(cap: 1024)
+        try b.appendLiterals([0x41, 0x42, 0x43, 0x44, 0x45])
+        try b.copy(distance: 5, length: 3)
+        #expect(b.toBytes().storage == [0x41, 0x42, 0x43, 0x44, 0x45, 0x41, 0x42, 0x43])
+    }
+
+    @Test("copy with overlap (RLE: length > distance)")
+    func copyOverlap() throws {
+        var b = OutputBuffer(cap: 1024)
+        try b.appendLiteral(0x41)
+        try b.copy(distance: 1, length: 4)  // duplicate the 'A' four more times
+        #expect(b.toBytes().storage == [0x41, 0x41, 0x41, 0x41, 0x41])
+    }
+
+    @Test("output cap respected")
+    func capRespected() throws {
+        var b = OutputBuffer(cap: 3)
+        try b.appendLiterals([0x41, 0x42, 0x43])
+        #expect(throws: BrotliError.outputTooLarge) {
+            try b.appendLiteral(0x44)
+        }
+    }
+
+    @Test("invalid distance (zero or past start) throws")
+    func invalidDistance() throws {
+        var b = OutputBuffer(cap: 1024)
+        try b.appendLiterals([0x41, 0x42])
+        #expect(throws: BrotliError.invalidDistance) {
+            try b.copy(distance: 0, length: 1)
+        }
+        #expect(throws: BrotliError.invalidDistance) {
+            try b.copy(distance: 99, length: 1)
+        }
+    }
+
+    @Test("lastTwo with various states")
+    func lastTwo() throws {
+        var b = OutputBuffer(cap: 1024)
+        #expect(b.lastTwo == (0, 0))
+        try b.appendLiteral(0x41)
+        #expect(b.lastTwo == (0x41, 0))
+        try b.appendLiteral(0x42)
+        try b.appendLiteral(0x43)
+        #expect(b.lastTwo == (0x43, 0x42))
+    }
+}
