@@ -278,3 +278,66 @@ struct ContextMapLUTTests {
         #expect(ctx == 59)
     }
 }
+
+@Suite("PrefixCode")
+struct PrefixCodeTests {
+    @Test("RFC 7932 § 3.2 example: lengths (2, 1, 3, 3) → codes 10, 0, 110, 111")
+    func canonicalExample() throws {
+        let pc = try PrefixCode(lengths: [2, 1, 3, 3], maxBits: 4)
+        // From spec: A=10, B=0, C=110, D=111.
+        // Stream order (LSB-first): A reads "0, 1", B reads "0", C reads "0, 1, 1",
+        // D reads "1, 1, 1" — wait that's wrong. Re-derive:
+        //   A=10 MSB-first; stream emits MSB first → bits "1, 0" in stream order
+        //   B=0 → stream emits "0"
+        //   C=110 → stream emits "1, 1, 0"
+        //   D=111 → stream emits "1, 1, 1"
+        // The bit reader returns LSB-first integers, but our decoder reads
+        // one bit at a time and builds an MSB-first accumulator (correct).
+        //
+        // For A=10: read bit 1, build acc=1 (L=1, codeStart[1]=0, codeEnd[1]=1
+        // so no match). Read bit 0, build acc=10=2 (L=2, codeStart[2]=2,
+        // codeEnd[2]=3 → match, offset 0). symbolStart[2] should point to
+        // symbol A (index 0).
+        //
+        // Construct a stream that emits A, B, C, D in succession:
+        //   A → "1, 0"
+        //   B → "0"
+        //   C → "1, 1, 0"
+        //   D → "1, 1, 1"
+        // Concatenated bits (LSB-first packing into bytes):
+        //   bit 0 = 1 (A's MSB)
+        //   bit 1 = 0 (A's LSB)
+        //   bit 2 = 0 (B's only)
+        //   bit 3 = 1 (C's MSB)
+        //   bit 4 = 1 (C's mid)
+        //   bit 5 = 0 (C's LSB)
+        //   bit 6 = 1 (D's MSB)
+        //   bit 7 = 1 (D's mid)
+        //   (byte 1) bit 0 = 1 (D's LSB)
+        // byte 0 = 0b1101_1001 = 0xD9; byte 1 = 0b0000_0001 = 0x01.
+        var r = BitReader(Bytes([0xD9, 0x01]))
+        var pc2 = pc
+        #expect(try pc2.readSymbol(&r) == 0)  // A
+        #expect(try pc2.readSymbol(&r) == 1)  // B
+        #expect(try pc2.readSymbol(&r) == 2)  // C
+        #expect(try pc2.readSymbol(&r) == 3)  // D
+    }
+
+    @Test("single-symbol alphabet shortcuts (zero bits read)")
+    func singleSymbol() throws {
+        // alphabet size 4, only symbol 2 has length 0 (or len 1 per
+        // single-symbol shortcut path). readSymbol returns 2 without bits.
+        let pc = try PrefixCode.makeSingleSymbol(2, alphabetSize: 4, maxBits: 15)
+        var r = BitReader(Bytes())
+        var pc2 = pc
+        #expect(try pc2.readSymbol(&r) == 2)
+    }
+
+    @Test("over-subscribed code throws .invalidPrefixCode")
+    func overSubscribed() {
+        // Three length-1 codes is impossible (2 codes of length 1 max).
+        #expect(throws: BrotliError.invalidPrefixCode) {
+            _ = try PrefixCode(lengths: [1, 1, 1], maxBits: 4)
+        }
+    }
+}
