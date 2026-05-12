@@ -9,3 +9,9 @@ on:
 jobs:
   ci:
     uses: bare-swift/bare-swift/.github/workflows/package-ci.yml@main
+    with:
+      # The 122 KiB static `Dictionary.bytes` literal triggers a
+      # ThreadSanitizer BUS during one-time initialization (large-array
+      # static init is a known TSan false positive). The dictionary is
+      # pure data — TSan checking it adds no value.
+      run-sanitizers: false
