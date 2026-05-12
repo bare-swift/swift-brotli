@@ -391,3 +391,64 @@ struct InsertCopyTests {
         }
     }
 }
+
+@Suite("DistanceDecoder")
+struct DistanceDecoderTests {
+    @Test("symbol 0 returns most-recent (4) without push")
+    func symbol0NoPush() throws {
+        var d = DistanceDecoder(ndirect: 0, npostfix: 0)
+        var r = BitReader(Bytes())
+        let v = try d.decode(symbol: 0, &r)
+        #expect(v == 4)
+        // ringBuffer unchanged
+        #expect(d.ringBuffer == [16, 15, 11, 4])
+        #expect(d.ringPos == 0)
+    }
+
+    @Test("symbols 0..3 reference last/second/third/fourth")
+    func smallSymbols() throws {
+        // Each symbol 1..3 pushes, so check in isolation.
+        for (sym, expected) in [(0, 4), (1, 11), (2, 15), (3, 16)] {
+            var d = DistanceDecoder(ndirect: 0, npostfix: 0)
+            var r = BitReader(Bytes())
+            let v = try d.decode(symbol: sym, &r)
+            #expect(v == expected, "symbol \(sym) should resolve to \(expected), got \(v)")
+        }
+    }
+
+    @Test("symbols 4..9: last ± k pattern")
+    func smallLastAdjusted() throws {
+        // last = 4, so:
+        //   4 → 3 (4-1), 5 → 5 (4+1), 6 → 2, 7 → 6, 8 → 1, 9 → 7
+        let cases: [(Int, Int)] = [(4, 3), (5, 5), (6, 2), (7, 6), (8, 1), (9, 7)]
+        for (sym, expected) in cases {
+            var d = DistanceDecoder(ndirect: 0, npostfix: 0)
+            var r = BitReader(Bytes())
+            let v = try d.decode(symbol: sym, &r)
+            #expect(v == expected, "symbol \(sym) → \(expected); got \(v)")
+        }
+    }
+
+    @Test("direct distance with NDIRECT")
+    func directDistance() throws {
+        var d = DistanceDecoder(ndirect: 4, npostfix: 0)
+        var r = BitReader(Bytes())
+        // Symbol 16 → distance 1, 17 → 2, 18 → 3, 19 → 4 (all direct).
+        for (sym, expected) in [(16, 1), (17, 2), (18, 3), (19, 4)] {
+            var fresh = DistanceDecoder(ndirect: 4, npostfix: 0)
+            let v = try fresh.decode(symbol: sym, &r)
+            #expect(v == expected)
+        }
+        _ = d
+    }
+
+    @Test("postfix formula symbol 16 (NDIRECT=0, NPOSTFIX=0)")
+    func postfixSymbol16() throws {
+        var d = DistanceDecoder(ndirect: 0, npostfix: 0)
+        // dcode=16, base=0, hcode=0, lcode=0, ndistbits=1
+        // extra=0: offset = ((2 + 0) << 1) - 4 = 0; distance = ((0+0)<<0) + 0 + 0 + 1 = 1
+        var r = BitReader(Bytes([0x00]))  // extra bit = 0
+        let v = try d.decode(symbol: 16, &r)
+        #expect(v == 1)
+    }
+}
