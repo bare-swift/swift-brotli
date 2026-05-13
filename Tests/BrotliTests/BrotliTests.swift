@@ -12,7 +12,8 @@ struct BrotliAPISurfaceTests {
         switch e {
         case .truncated, .invalidHeader, .invalidPrefixCode, .invalidContextMode,
              .invalidBlockType, .invalidDistance, .invalidDictionaryReference,
-             .invalidTransform, .invalidMetaBlockHeader, .outputTooLarge:
+             .invalidTransform, .invalidMetaBlockHeader, .outputTooLarge,
+             .inputTooLarge, .qualityOutOfRange:
             #expect(true)
         }
     }

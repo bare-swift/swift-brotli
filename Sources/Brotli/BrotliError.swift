@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 // Copyright (c) 2026 The bare-swift Project Authors.
 
-/// Errors thrown by ``Brotli/decode(_:)``.
+/// Errors thrown by ``Brotli/decode(_:)`` and ``Brotli/compress(_:quality:)``.
 public enum BrotliError: Error, Equatable, Sendable {
     /// Decoder ran out of bytes mid-stream.
     case truncated
@@ -36,4 +36,12 @@ public enum BrotliError: Error, Equatable, Sendable {
 
     /// Output buffer hit an implementation-imposed cap (64 MiB by default).
     case outputTooLarge
+
+    /// Encoder: input larger than the encoder's 16 MiB-1 cap. v0.2 doesn't
+    /// stream; one-shot only.
+    case inputTooLarge
+
+    /// Encoder: ``Brotli/Quality/level(_:)`` was given a value outside the
+    /// RFC 7932 range of 0..11.
+    case qualityOutOfRange
 }
