@@ -318,3 +318,43 @@ struct EncoderCommandTests {
         #expect(r.extraBits >= 0)
     }
 }
+
+@Suite("MatchFinder")
+struct MatchFinderTests {
+    @Test("quality 0 emits all bytes as literals, no copies")
+    func qualityZero() {
+        let input = Bytes([1, 2, 3, 4, 5])
+        let commands = MatchFinder.scan(input, quality: .fastest)
+        let totalLits = commands.reduce(0) { $0 + $1.insertLits.count }
+        #expect(totalLits == 5)
+        #expect(commands.allSatisfy { $0.copyLen == 0 })
+    }
+
+    @Test("quality 6 finds a repeating run")
+    func qualitySixRepeat() {
+        var input: [UInt8] = []
+        for _ in 0..<2 { input.append(contentsOf: [65, 66, 67, 68, 69, 70, 71, 72]) }
+        let commands = MatchFinder.scan(Bytes(input), quality: .default)
+        let copies = commands.filter { $0.copyLen >= 4 }
+        #expect(!copies.isEmpty)
+        if let first = copies.first {
+            #expect(first.distance == 8)
+        }
+    }
+
+    @Test("quality 0 empty input")
+    func qualityZeroEmpty() {
+        let commands = MatchFinder.scan(Bytes(), quality: .fastest)
+        let totalLits = commands.reduce(0) { $0 + $1.insertLits.count }
+        #expect(totalLits == 0)
+    }
+
+    @Test("quality 6 short input below match-length skips matching")
+    func shortInput() {
+        // 3 bytes — below minMatch=4, so all literals even at quality 6.
+        let commands = MatchFinder.scan(Bytes([1, 2, 3]), quality: .default)
+        let totalLits = commands.reduce(0) { $0 + $1.insertLits.count }
+        #expect(totalLits == 3)
+        #expect(commands.allSatisfy { $0.copyLen == 0 })
+    }
+}
