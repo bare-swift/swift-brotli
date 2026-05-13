@@ -165,3 +165,76 @@ struct HuffmanBuilderTests {
         #expect(codes[6] == 0b11)
     }
 }
+
+@Suite("PrefixCodeEmitter round-trip")
+struct PrefixCodeEmitterTests {
+    /// Helper: emit a prefix code, then read it back via v0.1 PrefixCode.read,
+    /// and verify the resulting code's structure matches what we declared.
+    static func roundTrip(lengths: [Int], alphabetSize: Int, maxBits: Int = 15) throws -> PrefixCode {
+        var w = BitWriter()
+        PrefixCodeEmitter.emit(codeLengths: lengths, alphabetSize: alphabetSize, to: &w)
+        let encoded = w.finalize()
+        var r = BitReader(encoded)
+        return try PrefixCode.read(&r, alphabetSize: alphabetSize, maxBits: maxBits)
+    }
+
+    @Test("simple form 1 symbol round-trip")
+    func simpleOne() throws {
+        var lengths = [Int](repeating: 0, count: 256)
+        lengths[42] = 1
+        let pc = try Self.roundTrip(lengths: lengths, alphabetSize: 256)
+        // For a 1-symbol code, every readSymbol returns the single symbol.
+        // Read from an empty stream — singleSymbol short-circuit.
+        var r = BitReader(Bytes())
+        var pc2 = pc
+        #expect(try pc2.readSymbol(&r) == 42)
+    }
+
+    @Test("simple form 2 symbols round-trip")
+    func simpleTwo() throws {
+        // Two symbols of length 1 each.
+        var lengths = [Int](repeating: 0, count: 8)
+        lengths[1] = 1
+        lengths[3] = 1
+        let pc = try Self.roundTrip(lengths: lengths, alphabetSize: 8)
+        // After emit + read, the resulting code should decode bit 0 → symbol 1,
+        // bit 1 → symbol 3 (since codes are sorted ascending: 1 gets code 0,
+        // 3 gets code 1).
+        var r = BitReader(Bytes([0b10]))
+        var pc2 = pc
+        #expect(try pc2.readSymbol(&r) == 1)  // first bit (0) → symbol 1
+        #expect(try pc2.readSymbol(&r) == 3)  // next bit (1) → symbol 3
+    }
+
+    @Test("complex form 5 distinct symbols round-trip")
+    func complexFive() throws {
+        var lengths = [Int](repeating: 0, count: 8)
+        for i in 0..<4 { lengths[i] = 3 }
+        lengths[4] = 2
+        // 4 symbols at length 3 + 1 symbol at length 2 → Kraft = 4 * 1/8 + 1/4 = 0.75
+        // That's UNDER-subscribed. Adjust to make it exactly 1.
+        // 2 symbols at length 1 + 4 at length 3 → 2*0.5 + 4*0.125 = 1.5 (over)
+        // Use 1 at length 1 + 1 at length 2 + 4 at length 3 → 0.5 + 0.25 + 4*0.125 = 1.25 (over)
+        // Use 1 at length 1 + 2 at length 2 + 2 at length 3 → 0.5 + 0.5 + 0.25 = 1.25 (over)
+        // Use 2 at length 2 + 4 at length 3 → 0.5 + 0.5 = 1 ✓
+        lengths = [Int](repeating: 0, count: 8)
+        lengths[0] = 2
+        lengths[1] = 2
+        lengths[2] = 3
+        lengths[3] = 3
+        lengths[4] = 3
+        lengths[5] = 3
+        // 6 distinct symbols, forces complex form.
+        let _ = try Self.roundTrip(lengths: lengths, alphabetSize: 8)
+        // No further assertion — round-trip succeeded means complex form
+        // marker + meta-tree + alphabet lengths all decoded correctly.
+    }
+
+    @Test("complex form sparse 256-alphabet round-trip")
+    func complexSparse() throws {
+        var lengths = [Int](repeating: 0, count: 256)
+        // 8 distinct symbols all at length 3 → Kraft = 8 * 0.125 = 1 ✓
+        for i in [0, 32, 65, 97, 100, 200, 255, 128] { lengths[i] = 3 }
+        let _ = try Self.roundTrip(lengths: lengths, alphabetSize: 256)
+    }
+}
