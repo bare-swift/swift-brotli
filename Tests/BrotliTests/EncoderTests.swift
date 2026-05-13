@@ -93,3 +93,75 @@ struct BitWriterTests {
         #expect(out[2] == 0x0A)
     }
 }
+
+@Suite("HuffmanBuilder")
+struct HuffmanBuilderTests {
+    @Test("all zeros input returns all zeros")
+    func allZeros() {
+        let lengths = HuffmanBuilder.build(frequencies: [0, 0, 0, 0], maxBits: 15)
+        #expect(lengths == [0, 0, 0, 0])
+    }
+
+    @Test("single non-zero symbol → length 1 at that index")
+    func singleSymbol() {
+        let lengths = HuffmanBuilder.build(frequencies: [0, 0, 5, 0], maxBits: 15)
+        #expect(lengths == [0, 0, 1, 0])
+    }
+
+    @Test("two symbols → both length 1")
+    func twoSymbols() {
+        let lengths = HuffmanBuilder.build(frequencies: [3, 5, 0, 0], maxBits: 15)
+        #expect(lengths == [1, 1, 0, 0])
+    }
+
+    @Test("four equal-frequency symbols → all length 2")
+    func fourEqual() {
+        let lengths = HuffmanBuilder.build(frequencies: [1, 1, 1, 1], maxBits: 15)
+        #expect(lengths == [2, 2, 2, 2])
+    }
+
+    @Test("Kraft inequality satisfied for skewed input")
+    func kraftHolds() {
+        let lengths = HuffmanBuilder.build(frequencies: [100, 50, 25, 10, 5, 1], maxBits: 15)
+        var kraft = 0.0
+        for L in lengths where L > 0 {
+            kraft += 1.0 / Double(1 << L)
+        }
+        #expect(kraft <= 1.0 + 1e-9)
+        #expect(kraft >= 0.5)
+    }
+
+    @Test("max-bits cap honored")
+    func maxBitsCap() {
+        var freqs = [Int](repeating: 0, count: 32)
+        freqs[0] = 1_000_000
+        for i in 1..<32 { freqs[i] = 1 }
+        let lengths = HuffmanBuilder.build(frequencies: freqs, maxBits: 5)
+        #expect(lengths.allSatisfy { $0 <= 5 })
+        #expect(lengths[0] > 0)
+    }
+
+    @Test("canonicalCodes assigns deterministic codes")
+    func canonical() {
+        let lengths = [3, 3, 3, 3, 3, 2, 4, 4]
+        let codes = HuffmanBuilder.canonicalCodes(from: lengths)
+        #expect(codes[5] == 0b00)
+        #expect(codes[0] == 0b010)
+        #expect(codes[1] == 0b011)
+        #expect(codes[2] == 0b100)
+        #expect(codes[3] == 0b101)
+        #expect(codes[4] == 0b110)
+        #expect(codes[6] == 0b1110)
+        #expect(codes[7] == 0b1111)
+    }
+
+    @Test("canonicalCodes blCount[0] reset")
+    func blCountReset() {
+        let lengths = [0, 0, 0, 2, 2, 2, 2]
+        let codes = HuffmanBuilder.canonicalCodes(from: lengths)
+        #expect(codes[3] == 0b00)
+        #expect(codes[4] == 0b01)
+        #expect(codes[5] == 0b10)
+        #expect(codes[6] == 0b11)
+    }
+}
