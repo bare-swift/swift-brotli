@@ -392,3 +392,127 @@ struct EncoderRoundTripSmallTests {
         #expect(plain == input)
     }
 }
+
+@Suite("Encoder round-trip — comprehensive matrix")
+struct EncoderRoundTripMatrixTests {
+    static let qualities: [Brotli.Quality] = [.fastest, .fast, .default, .balanced, .smallest]
+
+    static func roundTrip(_ input: [UInt8], quality: Brotli.Quality) throws {
+        let bytes = Bytes(input)
+        let compressed = try Brotli.compress(bytes, quality: quality)
+        let plain = try Brotli.decode(compressed)
+        #expect(plain == bytes, "round-trip failed at quality \(quality.rawValue)")
+    }
+
+    @Test("empty input across all qualities")
+    func empty() throws {
+        for q in Self.qualities {
+            try Self.roundTrip([], quality: q)
+        }
+    }
+
+    @Test("single byte across all qualities")
+    func singleByte() throws {
+        for q in Self.qualities {
+            try Self.roundTrip([0x42], quality: q)
+        }
+    }
+
+    @Test("repeating 100 bytes")
+    func repeating() throws {
+        let input = [UInt8](repeating: 0x41, count: 100)
+        for q in Self.qualities {
+            try Self.roundTrip(input, quality: q)
+        }
+    }
+
+    @Test("random 1 KiB")
+    func random1k() throws {
+        var rng = SystemRandomNumberGenerator()
+        var input = [UInt8]()
+        for _ in 0..<1024 { input.append(UInt8(rng.next() & 0xFF)) }
+        for q in Self.qualities {
+            try Self.roundTrip(input, quality: q)
+        }
+    }
+
+    @Test("ASCII text 4 KiB")
+    func asciiText() throws {
+        let lorem = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. "
+        var input: [UInt8] = []
+        while input.count < 4096 {
+            input.append(contentsOf: Array(lorem.utf8))
+        }
+        input = Array(input.prefix(4096))
+        for q in Self.qualities {
+            try Self.roundTrip(input, quality: q)
+        }
+    }
+
+    @Test("JSON-shaped 4 KiB")
+    func jsonShaped() throws {
+        var input: [UInt8] = []
+        let entry = #"{"id":12345,"name":"alice","email":"alice@example.com"},"#
+        while input.count < 4096 {
+            input.append(contentsOf: Array(entry.utf8))
+        }
+        input = Array(input.prefix(4096))
+        for q in Self.qualities {
+            try Self.roundTrip(input, quality: q)
+        }
+    }
+
+    @Test("16 KiB random binary")
+    func random16k() throws {
+        var rng = SystemRandomNumberGenerator()
+        var input = [UInt8]()
+        for _ in 0..<16384 { input.append(UInt8(rng.next() & 0xFF)) }
+        for q in Self.qualities {
+            try Self.roundTrip(input, quality: q)
+        }
+    }
+}
+
+@Suite("Encoder errors")
+struct EncoderErrorTests {
+    @Test("input > 16 MiB throws inputTooLarge")
+    func inputTooLarge() {
+        let bytes = Bytes([UInt8](repeating: 0, count: Brotli.maxInputSize + 1))
+        #expect(throws: BrotliError.inputTooLarge) {
+            _ = try Brotli.compress(bytes)
+        }
+    }
+
+    @Test("quality -1 throws qualityOutOfRange")
+    func qualityNegative() {
+        #expect(throws: BrotliError.qualityOutOfRange) {
+            _ = try Brotli.compress(Bytes([1]), quality: .level(-1))
+        }
+    }
+
+    @Test("quality 12 throws qualityOutOfRange")
+    func qualityTooHigh() {
+        #expect(throws: BrotliError.qualityOutOfRange) {
+            _ = try Brotli.compress(Bytes([1]), quality: .level(12))
+        }
+    }
+}
+
+@Suite("Encoder compression sanity")
+struct EncoderCompressionSanityTests {
+    @Test("4 KiB repeating Lorem compresses below input size at quality 6+")
+    func loremCompresses() throws {
+        let lorem = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. "
+        var input: [UInt8] = []
+        while input.count < 4096 { input.append(contentsOf: Array(lorem.utf8)) }
+        input = Array(input.prefix(4096))
+
+        let q6 = try Brotli.compress(Bytes(input), quality: .default)
+        let q9 = try Brotli.compress(Bytes(input), quality: .balanced)
+
+        #expect(try Brotli.decode(q6) == Bytes(input))
+        #expect(try Brotli.decode(q9) == Bytes(input))
+        #expect(q6.count < 4096)
+        #expect(q9.count < 4096)
+    }
+}
