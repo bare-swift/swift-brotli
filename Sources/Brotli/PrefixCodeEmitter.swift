@@ -22,6 +22,15 @@ enum PrefixCodeEmitter {
 
     static func emit(codeLengths: [Int], alphabetSize: Int, to w: inout BitWriter) {
         let used = codeLengths.enumerated().filter { $0.element > 0 }
+        if used.isEmpty {
+            // Degenerate: no symbols are used (e.g. distance tree when no
+            // copies exist). The decoder still needs to read a prefix code,
+            // so emit a 1-symbol simple form pointing at symbol 0. The
+            // decoder reads it but never uses it.
+            emitSimple(codeLengths: codeLengths, alphabetSize: alphabetSize,
+                       used: [0], to: &w)
+            return
+        }
         if used.count <= 4 {
             emitSimple(codeLengths: codeLengths, alphabetSize: alphabetSize,
                        used: used.map(\.offset), to: &w)

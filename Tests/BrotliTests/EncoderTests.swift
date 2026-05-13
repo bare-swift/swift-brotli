@@ -358,3 +358,37 @@ struct MatchFinderTests {
         #expect(commands.allSatisfy { $0.copyLen == 0 })
     }
 }
+
+@Suite("Encoder round-trip — small inputs")
+struct EncoderRoundTripSmallTests {
+    @Test("empty input round-trips")
+    func empty() throws {
+        let compressed = try Brotli.compress(Bytes())
+        let plain = try Brotli.decode(compressed)
+        #expect(plain.isEmpty)
+    }
+
+    @Test("single byte round-trips at quality 0")
+    func singleByteQ0() throws {
+        let input = Bytes([0x42])
+        let compressed = try Brotli.compress(input, quality: .fastest)
+        let plain = try Brotli.decode(compressed)
+        #expect(plain == input)
+    }
+
+    @Test("4-byte literal round-trips at quality 0")
+    func fourBytesQ0() throws {
+        let input = Bytes([1, 2, 3, 4])
+        let compressed = try Brotli.compress(input, quality: .fastest)
+        let plain = try Brotli.decode(compressed)
+        #expect(plain == input)
+    }
+
+    @Test("4-byte literal round-trips at quality 6")
+    func fourBytesQ6() throws {
+        let input = Bytes([1, 2, 3, 4])
+        let compressed = try Brotli.compress(input, quality: .default)
+        let plain = try Brotli.decode(compressed)
+        #expect(plain == input)
+    }
+}
