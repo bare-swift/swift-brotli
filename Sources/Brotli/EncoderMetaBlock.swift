@@ -102,9 +102,24 @@ enum EncoderMetaBlock {
         }
 
         // Build the three trees.
-        let litLengths = HuffmanBuilder.build(frequencies: litFreqs, maxBits: 15)
-        let icLengths = HuffmanBuilder.build(frequencies: icFreqs, maxBits: 15)
-        let distLengths = HuffmanBuilder.build(frequencies: distFreqs, maxBits: 15)
+        var litLengths = HuffmanBuilder.build(frequencies: litFreqs, maxBits: 15)
+        var icLengths = HuffmanBuilder.build(frequencies: icFreqs, maxBits: 15)
+        var distLengths = HuffmanBuilder.build(frequencies: distFreqs, maxBits: 15)
+
+        // Complex-form prefix codes need a meta-Huffman with ≥ 2 used
+        // symbols (the 18 length-codes 0..17), otherwise the meta-Kraft
+        // sum can't reach 32 and the decoder rejects with FORMAT_CL_SPACE.
+        // When an alphabet's lengths are uniform (every used symbol has
+        // the same length value), the meta-Huffman has only 1 used symbol.
+        // Perturb to introduce length variety so the meta-Huffman is valid.
+        litLengths = ensureLengthVariety(litLengths)
+        icLengths = ensureLengthVariety(icLengths)
+        distLengths = ensureLengthVariety(distLengths)
+
+        // Encoder-internal sanity: each tree's Kraft sum must equal 2^15.
+        precondition(checkKraft(litLengths), "literal tree Kraft sum violation")
+        precondition(checkKraft(icLengths), "ic tree Kraft sum violation")
+        precondition(checkKraft(distLengths), "distance tree Kraft sum violation")
 
         // Emit prefix-code descriptors.
         PrefixCodeEmitter.emit(codeLengths: litLengths, alphabetSize: 256, to: &w)
@@ -175,5 +190,61 @@ enum EncoderMetaBlock {
     private static func emitCode(value: UInt32, length: Int, to w: inout BitWriter) {
         if length == 0 { return }
         w.writeBits(PrefixCodeEmitter.reverseBits(value, count: length), count: length)
+    }
+
+    /// Verify Kraft equality: Σ 2^-L over non-zero lengths must equal 1
+    /// (in 2^15 fixed-point: sum equals 2^15). Single-symbol trees are
+    /// allowed (return true unconditionally since the decoder short-
+    /// circuits them).
+    private static func checkKraft(_ lengths: [Int]) -> Bool {
+        let nonZero = lengths.lazy.filter { $0 > 0 }.count
+        if nonZero <= 1 { return true }
+        var sum = 0
+        let M = 1 << 15
+        for L in lengths where L > 0 {
+            if L > 15 { return false }
+            sum += M >> L
+        }
+        return sum == M
+    }
+
+    /// If `lengths` has all non-zero entries equal to the same value `L`
+    /// (uniform Huffman), perturb to introduce at least 2 distinct length
+    /// values while preserving Kraft equality. Required so the meta-
+    /// Huffman over the 18 length-codes has ≥ 2 used symbols — otherwise
+    /// the decoder rejects with FORMAT_CL_SPACE.
+    ///
+    /// Perturbation: pick 3 used symbols. Change one from L to L-1 (Kraft
+    /// +1/2^L), and two from L to L+1 (Kraft -2/2^(L+1) = -1/2^L). Net
+    /// Kraft change = 0. Works when L ≥ 1 and L+1 ≤ maxBits=15, and at
+    /// least 3 symbols are used.
+    ///
+    /// Edge cases:
+    /// - 0 or 1 used symbols → no complex form; return unchanged.
+    /// - 2 used symbols (both length 1) → 2 distinct symbols, but same
+    ///   length value (both 1) → uniform. Can't perturb to length 0 (means
+    ///   unused) or maintain Kraft with 2 symbols. v0.2 emits these in
+    ///   SIMPLE form (handled by PrefixCodeEmitter NSYM=2 path) — so we
+    ///   shouldn't reach here with this case. Guard anyway.
+    private static func ensureLengthVariety(_ lengths: [Int]) -> [Int] {
+        let usedIndices = lengths.enumerated().compactMap { $0.element > 0 ? $0.offset : nil }
+        if usedIndices.count < 3 { return lengths }
+        // Check if all used symbols have the same length.
+        let firstL = lengths[usedIndices[0]]
+        let uniform = usedIndices.allSatisfy { lengths[$0] == firstL }
+        if !uniform { return lengths }
+        // Perturb: 1 down to L-1, 2 up to L+1. Need L >= 1 and L+1 <= 15.
+        let L = firstL
+        guard L >= 1 && L + 1 <= 15 else {
+            // L=0 impossible (it's filtered out). L=15: can't go higher.
+            // Fall through: try L-1 with 2 down + 1 up at L+2 maybe? For v0.2
+            // simplicity, accept that L=15 uniform is uncommon and skip.
+            return lengths
+        }
+        var out = lengths
+        out[usedIndices[0]] = L - 1
+        out[usedIndices[1]] = L + 1
+        out[usedIndices[2]] = L + 1
+        return out
     }
 }

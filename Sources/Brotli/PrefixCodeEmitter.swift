@@ -23,20 +23,52 @@ enum PrefixCodeEmitter {
     static func emit(codeLengths: [Int], alphabetSize: Int, to w: inout BitWriter) {
         let used = codeLengths.enumerated().filter { $0.element > 0 }
         if used.isEmpty {
-            // Degenerate: no symbols are used (e.g. distance tree when no
-            // copies exist). The decoder still needs to read a prefix code,
-            // so emit a 1-symbol simple form pointing at symbol 0. The
-            // decoder reads it but never uses it.
+            // Degenerate: no symbols used. Emit 1-symbol simple form
+            // (symbol 0); decoder reads it but never uses it.
             emitSimple(codeLengths: codeLengths, alphabetSize: alphabetSize,
                        used: [0], to: &w)
             return
         }
-        if used.count <= 4 {
+        // Simple form constraints:
+        //   NSYM=1 → 0 bits per symbol (decoder short-circuits).
+        //   NSYM=2 → both length 1.
+        //   NSYM=3 → lengths (1, 2, 2) in SORTED-INDEX order.
+        //   NSYM=4 → (2, 2, 2, 2) or (1, 2, 3, 3) in SORTED-INDEX order.
+        //
+        // Canonical Huffman doesn't guarantee the length-1 symbol is the
+        // smallest-index — so NSYM=3 and NSYM=4 only fit the simple form
+        // when the canonical lengths happen to align with sorted-index order.
+        // Easier to fall back to complex form for NSYM ≥ 3 unless lengths
+        // are all equal (the simple form's "uniform" shape).
+        switch used.count {
+        case 1, 2:
             emitSimple(codeLengths: codeLengths, alphabetSize: alphabetSize,
                        used: used.map(\.offset), to: &w)
-        } else {
+        case 3 where simpleThreeFits(codeLengths: codeLengths, used: used.map(\.offset)):
+            emitSimple(codeLengths: codeLengths, alphabetSize: alphabetSize,
+                       used: used.map(\.offset), to: &w)
+        case 4 where simpleFourFits(codeLengths: codeLengths, used: used.map(\.offset)):
+            emitSimple(codeLengths: codeLengths, alphabetSize: alphabetSize,
+                       used: used.map(\.offset), to: &w)
+        default:
             emitComplex(codeLengths: codeLengths, to: &w)
         }
+    }
+
+    /// Simple form NSYM=3 requires lengths (1, 2, 2) in sorted-INDEX order.
+    private static func simpleThreeFits(codeLengths: [Int], used: [Int]) -> Bool {
+        let sorted = used.sorted()
+        let lensInOrder = sorted.map { codeLengths[$0] }
+        return lensInOrder == [1, 2, 2]
+    }
+
+    /// Simple form NSYM=4 has two trees:
+    /// - tree-select=0: `(2, 2, 2, 2)` in sorted-index order.
+    /// - tree-select=1: `(1, 2, 3, 3)` in sorted-index order.
+    private static func simpleFourFits(codeLengths: [Int], used: [Int]) -> Bool {
+        let sorted = used.sorted()
+        let lensInOrder = sorted.map { codeLengths[$0] }
+        return lensInOrder == [2, 2, 2, 2] || lensInOrder == [1, 2, 3, 3]
     }
 
     // MARK: - Simple form (RFC 7932 § 3.4)
@@ -91,6 +123,17 @@ enum PrefixCodeEmitter {
         let lengthCodeLengths = HuffmanBuilder.build(
             frequencies: lengthCodeFreqs, maxBits: 5
         )
+        // Sanity: the meta-Huffman lengths MUST satisfy Kraft equality
+        // in 5-bit space (Σ 32 >> L = 32) for the decoder to accept.
+        var metaKraft = 0
+        var metaUsed = 0
+        for L in lengthCodeLengths where L > 0 {
+            metaKraft += 32 >> L
+            metaUsed += 1
+        }
+        precondition(metaUsed <= 1 || metaKraft == 32,
+                     "meta-Huffman Kraft != 32 (used=\(metaUsed), sum=\(metaKraft), lengths=\(lengthCodeLengths))")
+
 
         // Emit length-code-lengths in codeLengthCodeOrder. Each length is
         // encoded via the variable-length meta-meta-code from § 3.5 Table 1
