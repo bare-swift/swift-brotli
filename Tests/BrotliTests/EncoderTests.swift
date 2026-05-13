@@ -233,8 +233,88 @@ struct PrefixCodeEmitterTests {
     @Test("complex form sparse 256-alphabet round-trip")
     func complexSparse() throws {
         var lengths = [Int](repeating: 0, count: 256)
-        // 8 distinct symbols all at length 3 → Kraft = 8 * 0.125 = 1 ✓
         for i in [0, 32, 65, 97, 100, 200, 255, 128] { lengths[i] = 3 }
         let _ = try Self.roundTrip(lengths: lengths, alphabetSize: 256)
+    }
+}
+
+@Suite("EncoderCommand")
+struct EncoderCommandTests {
+    @Test("insert-length code: 0 → code 0, no extra bits")
+    func insertZero() {
+        let r = EncoderCommandCoding.insertLengthCode(0)
+        #expect(r.code == 0)
+        #expect(r.extraBits == 0)
+        #expect(r.extra == 0)
+    }
+
+    @Test("insert-length code: 5 → code 5, no extra bits")
+    func insertFive() {
+        let r = EncoderCommandCoding.insertLengthCode(5)
+        #expect(r.code == 5)
+        #expect(r.extraBits == 0)
+    }
+
+    @Test("insert-length code: 12 → code 8, 2 extra bits = 12-10 = 2")
+    func insertTwelve() {
+        let r = EncoderCommandCoding.insertLengthCode(12)
+        #expect(r.code == 8)
+        #expect(r.extraBits == 2)
+        #expect(r.extra == 2)
+    }
+
+    @Test("copy-length code: 2 → code 0, no extra")
+    func copyMin() {
+        let r = EncoderCommandCoding.copyLengthCode(2)
+        #expect(r.code == 0)
+        #expect(r.extraBits == 0)
+    }
+
+    @Test("copy-length code: 10 → code 8, 1 extra bit, payload 0")
+    func copyTen() {
+        let r = EncoderCommandCoding.copyLengthCode(10)
+        #expect(r.code == 8)
+        #expect(r.extraBits == 1)
+        #expect(r.extra == 0)
+    }
+
+    @Test("combinedCode for (insert=0, copy=0, useDist=true) → cell 2 symbol 128")
+    func combinedSmall() {
+        let s = EncoderCommandCoding.combinedSymbol(insertCode: 0, copyCode: 0, useDistance: true)
+        #expect(s == 128)  // cell 2 * 64 + 0 * 8 + 0
+    }
+
+    @Test("combinedCode for (insert=23, copy=0, useDist=true) → cell 7")
+    func combinedLargeInsert() {
+        let s = EncoderCommandCoding.combinedSymbol(insertCode: 23, copyCode: 0, useDistance: true)
+        // cell 7 * 64 + insertOffset (23-16=7) * 8 + copyOffset (0) = 448 + 56 + 0 = 504
+        #expect(s == 504)
+    }
+
+    @Test("distance 1 → code 16, 1 extra bit, extra=0")
+    func distOne() {
+        let r = EncoderCommandCoding.distanceCode(1)
+        // C=16: NDISTBITS=1, DOFFSET=0 → distance = 0 + extra + 1.
+        // For d=1: extra=0, extraBits=1.
+        #expect(r.code == 16)
+        #expect(r.extraBits == 1)
+        #expect(r.extra == 0)
+    }
+
+    @Test("distance 8 → code 18 range")
+    func distEight() {
+        let r = EncoderCommandCoding.distanceCode(8)
+        // C=18: NDISTBITS=2, DOFFSET=4, distance = 4 + extra + 1 = 5..8.
+        // For d=8, extra = 3.
+        #expect(r.code == 18)
+        #expect(r.extraBits == 2)
+        #expect(r.extra == 3)
+    }
+
+    @Test("distance 100 → produces valid code + extra bits")
+    func distHundred() {
+        let r = EncoderCommandCoding.distanceCode(100)
+        #expect(r.code >= 16)
+        #expect(r.extraBits >= 0)
     }
 }
