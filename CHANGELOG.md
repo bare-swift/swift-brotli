@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] — 2026-05-13
+
+### Added
+- `Brotli.compress(_ bytes: Bytes, quality: Quality = .default) throws(BrotliError) -> Bytes` — single-shot RFC 7932 encoder.
+- `Brotli.Quality` nested enum: `.fastest` (level 0) / `.fast` (4) / `.default` (6) / `.balanced` (9) / `.smallest` (11) / `.level(Int)` for explicit numeric levels in `0...11`.
+- `BrotliError.inputTooLarge` (input exceeds 16 MiB - 1) and `.qualityOutOfRange` (`Quality.level(n)` with `n < 0 || n > 11`).
+- `Brotli.maxInputSize` constant (= 16 MiB - 1) — the encoder's one-shot cap.
+- 8 new internal files: `BitWriter`, `Encoder`, `MatchFinder`, `EncoderCommand`, `HuffmanBuilder`, `PrefixCodeEmitter`, `EncoderMetaBlock` + the `Quality` enum nested in `Brotli`.
+- ~50 new tests across 8 suites covering BitWriter (LSB-first wire format), HuffmanBuilder (package-merge length-limited canonical Huffman + RFC 1951 § 3.2.2 canonical-codes with `bl_count[0]` reset), PrefixCodeEmitter (simple + complex form round-trip through v0.1 reader), EncoderCommand (insert/copy/distance brackets + combined symbol formula), MatchFinder (literal-only quality 0 + LZ77 chain match-finding), end-to-end round-trip matrix (5 quality levels × 7 input shapes), error paths, and compression sanity.
+
+### v0.2 encoder scope (explicit non-goals — deferred to v0.3+)
+- **Streaming encoder API.** v0.2 is one-shot only.
+- **Static-dictionary search.** Quality-11 reference feature; the static dictionary stays loaded only for the v0.1 decoder.
+- **Multi-metablock partitioning.** v0.2 emits one metablock per `compress()`.
+- **Advanced literal-context modes (NTREESL > 1).** v0.2 uses NTREESL=1 (single literal Huffman tree).
+- **Block-switch commands (NBLTYPES{L,I,D} > 1).**
+- **Last-4-distance ring-buffer shortcuts.** v0.2 emits direct distance codes only.
+
+Quality affects only match-search depth (chain pointers visited + max-distance window); everything else is constant across quality tiers. Output is **valid** brotli (round-trips via v0.1 decoder and the reference `brotli` CLI) but does NOT match the reference encoder's compression ratio.
+
+### Unchanged
+- v0.1 decoder API and behavior. All v0.1 consumers continue to work unchanged.
+
 ## [0.1.0] — 2026-05-12
 
 ### Added

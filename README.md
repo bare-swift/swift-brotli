@@ -1,6 +1,6 @@
 # swift-brotli
 
-RFC 7932 Brotli decoder — Sendable, Foundation-free.
+RFC 7932 Brotli codec — decoder (v0.1) + encoder (v0.2). Sendable, Foundation-free.
 
 Part of the [bare-swift](https://github.com/bare-swift) ecosystem.
 
@@ -24,13 +24,19 @@ Then depend on the `Brotli` product:
 import Brotli
 import Bytes
 
-let compressed: Bytes = ...   // raw brotli stream
+// Decode (v0.1):
+let compressed: Bytes = ...
 let plain = try Brotli.decode(compressed)
+
+// Compress (v0.2):
+let input: Bytes = ...
+let encoded = try Brotli.compress(input)
+let smaller = try Brotli.compress(input, quality: .smallest)
+let fast    = try Brotli.compress(input, quality: .fastest)
 ```
 
-For HTTP `Content-Encoding: br` payloads, decode directly with
-`Brotli.decode(_:)`. swift-content-encoding v0.3 will add a `br` branch
-to its multiplexer in a follow-up release.
+For HTTP `Content-Encoding: br`, swift-content-encoding v0.3+ wires the
+decode side; the encode side will land in v0.4.
 
 ## Scope
 
@@ -47,8 +53,10 @@ to its multiplexer in a follow-up release.
 
 Public API:
 
-- `Brotli.decode(_ bytes: Bytes) throws(BrotliError) -> Bytes`
-- `BrotliError` typed-throws enum (10 cases).
+- `Brotli.decode(_ bytes: Bytes) throws(BrotliError) -> Bytes` (v0.1)
+- `Brotli.compress(_ bytes: Bytes, quality: Quality = .default) throws(BrotliError) -> Bytes` (v0.2)
+- `Brotli.Quality` enum: `.fastest` / `.fast` / `.default` / `.balanced` / `.smallest` / `.level(Int)`.
+- `BrotliError` typed-throws enum (12 cases).
 
 ## Dependencies
 
@@ -56,10 +64,26 @@ Public API:
 
 (No `swift-deflate` / `swift-crypto` / other deps — brotli is its own codec.)
 
-## Out of scope for v0.1
+## v0.2 encoder scope
 
-- **Encoder.** Per the bare-swift decoder-first staging convention, the encoder lands in a future v0.2.
-- **Streaming decode.** v0.1 takes a single full `Bytes` input.
+The v0.2 encoder produces **valid** brotli streams that round-trip via this
+package's decoder and the reference `brotli` CLI — but it does NOT match
+the reference encoder's compression ratio. Quality affects only
+match-search depth (chain pointers visited + max distance window);
+everything else is constant across quality tiers.
+
+**Explicit non-goals for v0.2** (deferred to v0.3+):
+
+- **Streaming encoder.** One-shot only; inputs > 16 MiB-1 throw `.inputTooLarge`.
+- **Static-dictionary search.** Quality-11 reference feature; not implemented.
+- **Multi-metablock partitioning.** v0.2 emits one metablock per `compress()`.
+- **Advanced literal-context modes.** NTREESL=1 (single tree).
+- **Block-switch commands.** NBLTYPES{L,I,D}=1.
+- **Last-4-distance ring-buffer shortcuts.** v0.2 emits direct distance codes only.
+
+## Out of scope (v0.1 + v0.2)
+
+- **Streaming decode.** v0.1/v0.2 take a single full `Bytes` input.
 - **Custom dictionaries.** Only the RFC 7932 static dictionary is supported.
 - `Codable` bridging.
 
