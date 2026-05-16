@@ -33,7 +33,7 @@ enum Encoder {
 
         // Scan + emit metablock.
         let commands = MatchFinder.scan(bytes, quality: quality)
-        EncoderMetaBlock.emit(commands: commands, inputSize: bytes.count, to: &w)
+        EncoderMetaBlock.emit(commands: commands, inputSize: bytes.count, isLast: true, to: &w)
 
         // Final byte-align so the stream ends on a byte boundary.
         w.alignToByte()

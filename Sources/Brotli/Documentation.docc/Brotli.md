@@ -1,6 +1,6 @@
 # ``Brotli``
 
-RFC 7932 Brotli codec — decoder (v0.1) + encoder (v0.2). Sendable, Foundation-free.
+RFC 7932 Brotli codec — decoder (v0.1) + one-shot encoder (v0.2) + streaming encoder (v0.3). Sendable, Foundation-free.
 
 ## Overview
 
@@ -35,12 +35,30 @@ and uses a single metablock with NTREES{L,I,D}=1 / NPOSTFIX=0 /
 NDIRECT=0. Quality affects match-search depth only; v0.2 does NOT match
 the reference encoder's compression ratio.
 
+**Streaming compress** (since v0.3):
+
+```swift
+var encoder = try Brotli.Streaming.Encoder(quality: .default)
+encoder.update(chunk1)
+encoder.update(chunk2)
+let compressed = try encoder.finish()
+```
+
+Each `update(_:)` emits one Brotli metablock; `finish()` finalizes the
+stream. See ``Brotli/Streaming/Encoder`` for semantics around chunk
+boundaries, oversized chunks (>16 MiB are split internally), and
+finished-encoder behavior. v0.3 does not carry LZ77 match search across
+chunk boundaries — matches that span chunks are not found (deferred to
+v0.4).
+
 For HTTP `Content-Encoding: br`, swift-content-encoding v0.3+ wires the
 decode side; the encode side lands in v0.4.
 
-Per [RFC-0015](https://github.com/bare-swift/bare-swift/blob/main/rfcs/0015-phase-10-anchor-brotli-decoder.md)
-and [RFC-0017](https://github.com/bare-swift/bare-swift/blob/main/rfcs/0017-phase-12-anchor-brotli-encoder.md),
-v0.1 shipped decoding only; v0.2 adds encoding.
+Per [RFC-0015](https://github.com/bare-swift/bare-swift/blob/main/rfcs/0015-phase-10-anchor-brotli-decoder.md),
+[RFC-0017](https://github.com/bare-swift/bare-swift/blob/main/rfcs/0017-phase-12-anchor-brotli-encoder.md),
+and [RFC-0027](https://github.com/bare-swift/bare-swift/blob/main/rfcs/0027-phase-22-anchor-swift-brotli-v0.3-streaming-encoder.md),
+v0.1 shipped decoding only; v0.2 added one-shot encoding; v0.3 adds
+streaming encoding.
 
 ## Topics
 
@@ -53,6 +71,11 @@ v0.1 shipped decoding only; v0.2 adds encoding.
 - ``Brotli/compress(_:quality:)``
 - ``Brotli/Quality``
 - ``Brotli/maxInputSize``
+
+### Streaming compress (v0.3+)
+
+- ``Brotli/Streaming``
+- ``Brotli/Streaming/Encoder``
 
 ### Errors
 

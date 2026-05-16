@@ -86,3 +86,9 @@ public enum Brotli: Sendable {
         }
     }
 }
+
+extension Brotli {
+    /// Streaming encoder namespace (v0.3+). For one-shot compression of
+    /// bounded inputs ≤16 MiB, use ``Brotli/compress(_:quality:)``.
+    public enum Streaming: Sendable {}
+}

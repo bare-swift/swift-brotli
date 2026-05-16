@@ -1,6 +1,6 @@
 # swift-brotli
 
-RFC 7932 Brotli codec — decoder (v0.1) + encoder (v0.2). Sendable, Foundation-free.
+RFC 7932 Brotli codec — decoder (v0.1) + one-shot encoder (v0.2) + streaming encoder (v0.3). Sendable, Foundation-free.
 
 Part of the [bare-swift](https://github.com/bare-swift) ecosystem.
 
@@ -9,7 +9,7 @@ Part of the [bare-swift](https://github.com/bare-swift) ecosystem.
 Add to your `Package.swift`:
 
 ```swift
-.package(url: "https://github.com/bare-swift/swift-brotli.git", from: "0.1.0")
+.package(url: "https://github.com/bare-swift/swift-brotli.git", from: "0.3.0")
 ```
 
 Then depend on the `Brotli` product:
@@ -35,6 +35,31 @@ let smaller = try Brotli.compress(input, quality: .smallest)
 let fast    = try Brotli.compress(input, quality: .fastest)
 ```
 
+## Streaming (v0.3+)
+
+```swift
+import Brotli
+import Bytes
+
+var encoder = try Brotli.Streaming.Encoder(quality: .default)
+encoder.update(chunk1)
+encoder.update(chunk2)
+let compressed = try encoder.finish()
+let plain = try Brotli.decode(compressed)
+// plain == chunk1 + chunk2
+```
+
+Each `update(_:)` emits one Brotli metablock per chunk. Empty chunks are
+no-ops; chunks larger than 16 MiB split internally into multiple
+metablocks. `finish()` emits a terminator metablock and returns the full
+stream. After `finish()` the encoder is consumed — further `update(_:)`
+calls are silent no-ops; another `finish()` throws `encoderFinished`.
+
+`Brotli.Streaming.Encoder` does not carry LZ77 match search across chunk
+boundaries in v0.3. Matches that span chunks are not found, slightly
+hurting compression ratio compared to `Brotli.compress(_:)` one-shot.
+This is a v0.4 deferral.
+
 For HTTP `Content-Encoding: br`, swift-content-encoding v0.3+ wires the
 decode side; the encode side will land in v0.4.
 
@@ -55,8 +80,9 @@ Public API:
 
 - `Brotli.decode(_ bytes: Bytes) throws(BrotliError) -> Bytes` (v0.1)
 - `Brotli.compress(_ bytes: Bytes, quality: Quality = .default) throws(BrotliError) -> Bytes` (v0.2)
+- `Brotli.Streaming.Encoder(quality:)` + `update(_:)` + `finish() throws(BrotliError) -> Bytes` (v0.3)
 - `Brotli.Quality` enum: `.fastest` / `.fast` / `.default` / `.balanced` / `.smallest` / `.level(Int)`.
-- `BrotliError` typed-throws enum (12 cases).
+- `BrotliError` typed-throws enum (13 cases).
 
 ## Dependencies
 

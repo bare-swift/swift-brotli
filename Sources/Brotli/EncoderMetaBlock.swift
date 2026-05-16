@@ -16,16 +16,19 @@
 /// - NTREES{L,D} = 1 (single tree of each kind across the metablock).
 /// - No literal / distance context maps emitted (single-tree case).
 enum EncoderMetaBlock {
-    static func emit(commands: [EncoderCommand], inputSize: Int, to w: inout BitWriter) {
-        // ISLAST = 1
-        w.writeBit(1)
+    static func emit(commands: [EncoderCommand], inputSize: Int, isLast: Bool, to w: inout BitWriter) {
+        // ISLAST
+        w.writeBit(isLast ? 1 : 0)
 
-        // Empty stream → ISLASTEMPTY = 1, then DONE.
-        if inputSize == 0 {
-            w.writeBit(1)
-            return
+        // ISLASTEMPTY follows only when ISLAST=1.
+        if isLast {
+            if inputSize == 0 {
+                w.writeBit(1)  // ISLASTEMPTY = 1; metablock done.
+                return
+            }
+            w.writeBit(0)  // ISLASTEMPTY = 0
         }
-        w.writeBit(0)  // ISLASTEMPTY = 0
+        // For non-last: no ISLASTEMPTY bit follows; jump straight to MLEN.
 
         // Pick MNIBBLES based on input size. Per § 9.2:
         //   MNIBBLES = 4 (16-bit MLEN-1) for inputSize ≤ 65536
@@ -46,8 +49,11 @@ enum EncoderMetaBlock {
         w.writeBits(mnibblesCode, count: 2)
         w.writeBits(UInt32(mlenMinus1), count: 4 * mnibbles)
 
-        // ISUNCOMPRESSED is read by the decoder ONLY when !isLast. Since
-        // we always set isLast=1, we don't emit this bit.
+        // ISUNCOMPRESSED is read by the decoder ONLY when !isLast.
+        // For non-last metablocks we ALWAYS use compressed mode → emit 0.
+        if !isLast {
+            w.writeBit(0)  // ISUNCOMPRESSED = 0
+        }
 
         // NBLTYPESL = 1 → variable-length count "0" (single bit).
         w.writeBit(0)

@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] — 2026-05-16
+
+### Added
+- **Streaming encoder** — `Brotli.Streaming.Encoder` struct with `init(quality:)` / `update(_:)` / `finish()`. Each `update(_:)` emits one Brotli metablock per chunk (or N metablocks if a chunk exceeds 16 MiB). `finish()` emits a 2-bit terminator metablock and returns accumulated bytes.
+- `Brotli.Streaming` public namespace enum.
+- `BrotliError.encoderFinished` — thrown when `finish()` is called on an already-finished encoder.
+- 16 new tests covering round-trip (empty, single chunk, two chunks, 100 tiny chunks, ≥16 MiB chunks), quality coverage (`.fastest`, `.smallest`), and error/edge cases (invalid quality at init, double-finish, update-after-finish no-op).
+
+### Dependencies
+- No new dependencies. swift-bytes already in v0.1.
+
+### Stream-format notes
+- Streaming output is **valid Brotli** that decodes via the same `Brotli.decode(_:)` v0.1 API.
+- Empty stream output (`Brotli.Streaming.Encoder()` with no `update` calls + `finish()`) is **byte-equal** to `Brotli.compress(Bytes())`. Regression-tested.
+- Single-update streaming output is **not** byte-equal to `Brotli.compress(_:)` one-shot output (differs by ~1-3 bits due to extra ISUNCOMPRESSED bit + terminator metablock). Decoded equality holds.
+- No window carry across chunks in v0.3. LZ77 match search is per-chunk; matches across chunk boundaries are not found. Deferred to v0.4 for compression-ratio improvement.
+
+### Migration (v0.2 → v0.3)
+- **Additive only — non-breaking.** All v0.2 APIs unchanged.
+- `Brotli.compress(_:quality:)` continues to emit byte-equal output to v0.2 (regression-tested via existing v0.2 round-trip tests).
+- `Brotli.decode(_:)` unchanged from v0.1.
+- `Brotli.Quality` unchanged.
+- `BrotliError` adds 1 new case (additive; existing cases unchanged).
+
+### Out of scope (deferred to v0.4+)
+- Window carry across chunks (LZ77 across chunk boundaries — ratio improvement).
+- Per-chunk explicit flush API.
+- `reset()` for encoder reuse.
+- Streaming decode.
+- Static-dictionary search.
+- Multi-threaded streaming.
+
+### Phase 22
+- Tranche 22A of [RFC-0027](https://github.com/bare-swift/bare-swift/blob/main/rfcs/0027-phase-22-anchor-swift-brotli-v0.3-streaming-encoder.md). Closes the longest-standing codec-tier deferral (9 consecutive gates since Phase 12).
+
 ## [0.2.0] — 2026-05-13
 
 ### Added

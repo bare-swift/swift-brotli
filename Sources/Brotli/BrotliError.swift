@@ -44,4 +44,8 @@ public enum BrotliError: Error, Equatable, Sendable {
     /// Encoder: ``Brotli/Quality/level(_:)`` was given a value outside the
     /// RFC 7932 range of 0..11.
     case qualityOutOfRange
+
+    /// Encoder: ``Brotli/Streaming/Encoder/finish()`` was called twice on
+    /// the same encoder.
+    case encoderFinished
 }
