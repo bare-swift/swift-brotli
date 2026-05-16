@@ -187,6 +187,97 @@ struct StreamingTests {
         #expect(Array(plain) == [0x7F])
     }
 
+    // MARK: - Drain (v0.4)
+
+    @Test("drain() on fresh encoder returns empty Bytes")
+    func drainFresh() throws {
+        var encoder = try Brotli.Streaming.Encoder()
+        let drained = encoder.drain()
+        #expect(drained.count == 4 || drained.count == 0)
+        // After init, the 4-bit stream header is in the partial-byte buffer
+        // (NOT byte-aligned) so drain returns 0 bytes. (Empty stream header
+        // is below 8 bits.)
+        #expect(drained.count == 0)
+    }
+
+    @Test("drain() + finish() concatenated round-trips through decode")
+    func drainConcatRoundTrip() throws {
+        let payload = Bytes(Array("hello world hello world".utf8))
+        var encoder = try Brotli.Streaming.Encoder()
+        encoder.update(payload)
+        let drained = encoder.drain()
+        let final = try encoder.finish()
+
+        // Concatenate drained + final bytes; should decode to original.
+        var combined = Bytes()
+        combined.append(contentsOf: drained.storage)
+        combined.append(contentsOf: final.storage)
+        let plain = try Brotli.decode(combined)
+        #expect(Array(plain.storage) == Array(payload.storage))
+    }
+
+    @Test("multiple drains + finish round-trip equals single-finish round-trip")
+    func multipleDrains() throws {
+        let chunk1 = Bytes(Array("first".utf8))
+        let chunk2 = Bytes(Array("second".utf8))
+        let chunk3 = Bytes(Array("third".utf8))
+
+        // Streaming with drains between updates.
+        var draining = try Brotli.Streaming.Encoder()
+        draining.update(chunk1)
+        var collected = Bytes()
+        collected.append(contentsOf: draining.drain().storage)
+        draining.update(chunk2)
+        collected.append(contentsOf: draining.drain().storage)
+        draining.update(chunk3)
+        collected.append(contentsOf: draining.drain().storage)
+        collected.append(contentsOf: (try draining.finish()).storage)
+
+        let drainedDecoded = try Brotli.decode(collected)
+        let expected = Array("firstsecondthird".utf8)
+        #expect(Array(drainedDecoded.storage) == expected)
+    }
+
+    @Test("drain after finish is silent no-op (empty Bytes)")
+    func drainAfterFinish() throws {
+        var encoder = try Brotli.Streaming.Encoder()
+        encoder.update(Bytes(Array("data".utf8)))
+        _ = try encoder.finish()
+        let drained = encoder.drain()
+        #expect(drained.count == 0)
+    }
+
+    @Test("non-draining stream byte-equals concatenated-drains stream")
+    func drainConcatByteEquality() throws {
+        let chunk1 = Bytes(Array("aaaaaaaaaa".utf8))
+        let chunk2 = Bytes(Array("bbbbbbbbbb".utf8))
+
+        // Reference: never drain.
+        var reference = try Brotli.Streaming.Encoder()
+        reference.update(chunk1)
+        reference.update(chunk2)
+        let referenceOutput = try reference.finish()
+
+        // With drains.
+        var draining = try Brotli.Streaming.Encoder()
+        draining.update(chunk1)
+        let d1 = draining.drain()
+        draining.update(chunk2)
+        let d2 = draining.drain()
+        let d3 = try draining.finish()
+
+        var combined = Bytes()
+        combined.append(contentsOf: d1.storage)
+        combined.append(contentsOf: d2.storage)
+        combined.append(contentsOf: d3.storage)
+
+        // Bytes are identical because drain preserves the partial-byte
+        // buffer; concatenation is bit-perfect.
+        #expect(Array(combined.storage) == Array(referenceOutput.storage))
+    }
+
+    // MARK: - Existing v0.3 edge cases
+
     @Test("update after finish is silent no-op (then double-finish throws)")
     func updateAfterFinishNoOp() throws {
         var encoder = try Brotli.Streaming.Encoder()

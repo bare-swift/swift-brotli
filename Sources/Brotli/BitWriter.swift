@@ -48,4 +48,17 @@ struct BitWriter {
         copy.alignToByte()
         return Bytes(Array(copy.bytes))
     }
+
+    /// Return the byte-aligned portion of the accumulated bytes and reset
+    /// the byte buffer to empty. The partial-byte buffer (`buffer` /
+    /// `bitsInBuffer`) is preserved unchanged — subsequent writes continue
+    /// at the same bit offset as if drain had not been called.
+    ///
+    /// Caller of `Brotli.Streaming.Encoder.drain()` uses this to pipe
+    /// accumulated bytes out incrementally without terminating the stream.
+    mutating func drain() -> Bytes {
+        let result = Bytes(Array(bytes))
+        bytes.removeAll(keepingCapacity: true)
+        return result
+    }
 }

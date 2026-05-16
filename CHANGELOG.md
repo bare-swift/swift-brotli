@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] — 2026-05-17
+
+### Added
+- **`Brotli.Streaming.Encoder.drain() -> Bytes`** — returns the byte-aligned portion of the accumulated stream so far, resetting the internal byte buffer. The encoder remains in the open state; subsequent `update(_:)` and `finish()` calls produce the remainder. Concatenating all `drain()` returns with the final `finish()` return produces the **same bytes** as a single `finish()` call would have produced (byte-for-byte equality). Does NOT byte-align (partial-byte buffer survives) and does NOT emit a terminator. Silent no-op (returns empty `Bytes`) after `finish()`.
+- 5 new tests covering drain semantics, drain+finish round-trip, multiple-drain round-trip, drain-after-finish no-op, and byte-equality with non-draining stream.
+
+### Use case
+Multi-coding HTTP `Content-Encoding` streaming via swift-content-encoding v0.6 (Phase 28+). Without `drain()`, multi-coding chains would require buffering each encoder's full output before feeding it to the next, defeating the streaming purpose. `drain()` lets HTTP-layer orchestration pipe bytes through cascaded encoders incrementally.
+
+### Migration (v0.3 → v0.4)
+- **Additive only — non-breaking.** All v0.3 APIs unchanged.
+- Existing v0.3 streams (no `drain()` calls) produce byte-identical output to v0.3.
+- `BrotliError` cases unchanged.
+
+### Phase 27
+- Tranche 27A of [RFC-0032](https://github.com/bare-swift/bare-swift/blob/main/rfcs/0032-phase-27-anchor-codec-tier-v0.4-drain-sweep.md). Coordinated 4-tranche codec-tier v0.4 sweep adding `drain()` to brotli + deflate + gzip + zlib streaming encoders.
+
 ## [0.3.0] — 2026-05-16
 
 ### Added

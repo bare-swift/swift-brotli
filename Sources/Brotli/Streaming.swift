@@ -78,6 +78,26 @@ extension Brotli.Streaming {
             }
         }
 
+        /// Return the byte-aligned portion of the accumulated stream so far,
+        /// resetting the internal byte buffer. The encoder remains in the
+        /// open state — subsequent ``update(_:)`` and ``finish()`` calls
+        /// produce the remainder of the stream.
+        ///
+        /// Concatenating all `drain()` returns with the final `finish()`
+        /// return produces the same bytes as a single `finish()` call would
+        /// have produced (byte-for-byte equality, per RFC 7932).
+        ///
+        /// Does NOT byte-align (the partial-byte buffer survives drain) and
+        /// does NOT emit a terminator (that is `finish()`'s job).
+        /// Silent no-op (returns empty `Bytes`) when called after `finish()`.
+        ///
+        /// Added in v0.4 for multi-coding HTTP streaming composition via
+        /// swift-content-encoding v0.6.
+        public mutating func drain() -> Bytes {
+            guard case .open = state else { return Bytes() }
+            return writer.drain()
+        }
+
         /// Emit the terminator metablock (ISLAST=1, ISLASTEMPTY=1),
         /// byte-align, and return accumulated stream bytes. Throws
         /// ``BrotliError/encoderFinished`` on double-call.
