@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] — 2026-05-17
+
+### Added
+- **`Brotli.Streaming.Decoder`** — Sendable value-type streaming decoder mirroring `Brotli.Streaming.Encoder`'s API shape: `init()` / `update(_ chunk: Bytes)` / `finish() throws(BrotliError) -> Bytes`. Feed compressed input via `update(_:)`, call `finish()` to receive the decompressed output.
+- **`BrotliError.decoderFinished`** — thrown when `finish()` is called twice on the same decoder.
+- 17 new tests covering single-chunk and multi-chunk decode round-trips via the v0.2 one-shot encoder, tiny 1-byte chunks, 70 KiB payloads, `.fastest` / `.smallest` quality coverage, truncated-input errors, double-finish, update-after-finish no-op, empty stream, single-byte payload, and equivalence with `Brotli.decode(_:)` one-shot.
+
+### Honest scope under limitation (v0.5)
+The v0.5 decoder **buffers all compressed input bytes internally and runs `Brotli.decode(_:)` one-shot at `finish()`**. The decoded output is not yielded incrementally during `update(_:)`. True memory-streaming brotli decode requires a state-machine refactor of the internal `Decoder` plus supporting helpers (`MetaBlockHeader`, `OutputBuffer`, `ContextMap`, `PrefixCode`) — deferred to v0.6+ on adopter demand. v0.5 ships the **streaming-symmetric API surface** today so swift-content-encoding v0.7 streaming-decode wiring and downstream HTTP middleware can adopt a stable decoder shape without waiting for the underlying refactor.
+
+This matches the Phase 30 (deflate v0.5) + Phase 31 (gzip + zlib v0.5) honest-scope-under-limitation pattern.
+
+### Migration (v0.4 → v0.5)
+- **Additive only — non-breaking.** All v0.1-v0.4 APIs unchanged.
+- `Brotli.decode(_:)` continues to produce byte-identical output.
+- `Brotli.compress(_:quality:)`, `Brotli.Streaming.Encoder`, and `drain()` are unchanged.
+- New error case `BrotliError.decoderFinished` is additive (no exhaustive-switch callers exist outside this package; callers using `catch BrotliError.X` patterns are unaffected).
+
+### Phase 32
+- Tranche 32A of [RFC-0037](https://github.com/bare-swift/bare-swift/blob/main/rfcs/0037-phase-32-anchor-swift-brotli-v0.5-streaming-inflate.md). Completes codec-tier streaming-decode (after deflate + gzip + zlib in Phases 30-31).
+
 ## [0.4.0] — 2026-05-17
 
 ### Added

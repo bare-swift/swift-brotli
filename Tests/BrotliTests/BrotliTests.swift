@@ -13,7 +13,8 @@ struct BrotliAPISurfaceTests {
         case .truncated, .invalidHeader, .invalidPrefixCode, .invalidContextMode,
              .invalidBlockType, .invalidDistance, .invalidDictionaryReference,
              .invalidTransform, .invalidMetaBlockHeader, .outputTooLarge,
-             .inputTooLarge, .qualityOutOfRange, .encoderFinished:
+             .inputTooLarge, .qualityOutOfRange, .encoderFinished,
+             .decoderFinished:
             #expect(true)
         }
     }

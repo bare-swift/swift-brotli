@@ -118,3 +118,60 @@ extension Brotli.Streaming {
         }
     }
 }
+
+extension Brotli.Streaming {
+    /// Streaming Brotli decoder. Feed compressed chunks via ``update(_:)``
+    /// and finalize with ``finish()``. The decoder mirrors
+    /// ``Brotli/Streaming/Encoder``'s shape for API symmetry.
+    ///
+    /// **v0.5 implementation note (honest scope under limitation):** the
+    /// decoder buffers all compressed input bytes internally and runs
+    /// ``Brotli/decode(_:)`` one-shot at `finish()`. The decoded output
+    /// is not yielded incrementally during `update(_:)`. True memory-
+    /// streaming brotli decode requires a state-machine refactor of the
+    /// internal `Decoder` + supporting helpers (MetaBlockHeader,
+    /// OutputBuffer, ContextMap, PrefixCode) — a v0.6+ candidate, demand-
+    /// driven. v0.5 ships the streaming-symmetric API surface today.
+    ///
+    /// `Decoder` is a value type. Copying mid-stream produces two
+    /// divergent decoders. Treat as single-owner.
+    ///
+    /// After ``finish()`` the decoder is in the finished state.
+    /// ``update(_:)`` after finish is a silent no-op; double-finish throws
+    /// ``BrotliError/decoderFinished``.
+    ///
+    /// Added in v0.5 per RFC-0037.
+    public struct Decoder: Sendable {
+        private enum State: Sendable {
+            case open
+            case finished
+        }
+
+        private var buffer: ContiguousArray<UInt8>
+        private var state: State
+
+        public init() {
+            self.buffer = ContiguousArray<UInt8>()
+            self.state = .open
+        }
+
+        /// Feed a chunk of compressed input. Empty chunk = no-op.
+        /// Silent no-op when called after ``finish()``.
+        public mutating func update(_ chunk: Bytes) {
+            guard case .open = state else { return }
+            if chunk.isEmpty { return }
+            buffer.append(contentsOf: chunk.storage)
+        }
+
+        /// Finalize the stream: run ``Brotli/decode(_:)`` on the
+        /// accumulated input and return the decompressed output. Throws
+        /// ``BrotliError/decoderFinished`` on double-call. Throws other
+        /// `BrotliError` cases (e.g. `.truncated`, `.invalidHeader`) if
+        /// the buffered input is not a valid Brotli stream.
+        public mutating func finish() throws(BrotliError) -> Bytes {
+            guard case .open = state else { throw .decoderFinished }
+            state = .finished
+            return try Brotli.decode(Bytes(buffer))
+        }
+    }
+}

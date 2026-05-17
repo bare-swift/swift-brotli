@@ -1,6 +1,6 @@
 # ``Brotli``
 
-RFC 7932 Brotli codec — decoder (v0.1) + one-shot encoder (v0.2) + streaming encoder (v0.3). Sendable, Foundation-free.
+RFC 7932 Brotli codec — decoder (v0.1) + one-shot encoder (v0.2) + streaming encoder (v0.3) + streaming decoder (v0.5). Sendable, Foundation-free.
 
 ## Overview
 
@@ -51,6 +51,22 @@ finished-encoder behavior. v0.3 does not carry LZ77 match search across
 chunk boundaries — matches that span chunks are not found (deferred to
 v0.4).
 
+**Streaming decompress** (since v0.5):
+
+```swift
+var decoder = Brotli.Streaming.Decoder()
+decoder.update(compressedChunk1)
+decoder.update(compressedChunk2)
+let plain = try decoder.finish()
+```
+
+The v0.5 decoder buffers all compressed input internally and runs
+`Brotli.decode(_:)` one-shot at `finish()` — honest scope under
+limitation. True memory-streaming inflate (state-machine refactor of
+the internal `Decoder`) is deferred to v0.6+; v0.5 ships the
+streaming-symmetric API surface for adopter composition. See
+``Brotli/Streaming/Decoder``.
+
 For HTTP `Content-Encoding: br`, swift-content-encoding v0.3+ wires the
 decode side; the encode side lands in v0.4.
 
@@ -76,6 +92,10 @@ streaming encoding.
 
 - ``Brotli/Streaming``
 - ``Brotli/Streaming/Encoder``
+
+### Streaming decompress (v0.5+)
+
+- ``Brotli/Streaming/Decoder``
 
 ### Errors
 

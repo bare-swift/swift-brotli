@@ -299,3 +299,228 @@ struct StreamingTests {
         #expect(Array(plain) == Array("first".utf8))
     }
 }
+
+@Suite("Streaming decoder (v0.5)")
+struct StreamingDecoderTests {
+    // MARK: - Round-trip via v0.2 one-shot encoder
+
+    @Test("empty stream: decoder over Brotli.compress(empty) → empty")
+    func emptyStream() throws {
+        let compressed = try Brotli.compress(Bytes())
+        var decoder = Brotli.Streaming.Decoder()
+        decoder.update(compressed)
+        let plain = try decoder.finish()
+        #expect(plain.isEmpty)
+    }
+
+    @Test("single chunk round-trip: hello")
+    func singleChunkHello() throws {
+        let payload = Bytes(Array("hello".utf8))
+        let compressed = try Brotli.compress(payload)
+        var decoder = Brotli.Streaming.Decoder()
+        decoder.update(compressed)
+        let plain = try decoder.finish()
+        #expect(Array(plain) == Array(payload))
+    }
+
+    @Test("single chunk round-trip: hello world")
+    func singleChunkHelloWorld() throws {
+        let payload = Bytes(Array("hello world".utf8))
+        let compressed = try Brotli.compress(payload)
+        var decoder = Brotli.Streaming.Decoder()
+        decoder.update(compressed)
+        let plain = try decoder.finish()
+        #expect(Array(plain) == Array(payload))
+    }
+
+    @Test("pangram round-trip")
+    func pangramRoundTrip() throws {
+        let payload = Bytes(Array(
+            "The quick brown fox jumps over the lazy dog.".utf8))
+        let compressed = try Brotli.compress(payload)
+        var decoder = Brotli.Streaming.Decoder()
+        decoder.update(compressed)
+        let plain = try decoder.finish()
+        #expect(Array(plain) == Array(payload))
+    }
+
+    @Test("70 KiB payload round-trip")
+    func largePayloadRoundTrip() throws {
+        let size = 70 * 1024
+        let payload = [UInt8](repeating: 0x41, count: size)
+        let compressed = try Brotli.compress(Bytes(payload))
+        var decoder = Brotli.Streaming.Decoder()
+        decoder.update(compressed)
+        let plain = try decoder.finish()
+        #expect(plain.count == size)
+        #expect(Array(plain) == payload)
+    }
+
+    // MARK: - Multi-chunk input
+
+    @Test("two-chunk split of compressed input round-trips")
+    func twoChunkSplit() throws {
+        let payload = Bytes(Array(
+            "The quick brown fox jumps over the lazy dog.".utf8))
+        let compressed = try Brotli.compress(payload)
+        let bytes = Array(compressed)
+        let mid = bytes.count / 2
+        let chunk1 = Bytes(Array(bytes[0..<mid]))
+        let chunk2 = Bytes(Array(bytes[mid..<bytes.count]))
+        var decoder = Brotli.Streaming.Decoder()
+        decoder.update(chunk1)
+        decoder.update(chunk2)
+        let plain = try decoder.finish()
+        #expect(Array(plain) == Array(payload))
+    }
+
+    @Test("three-chunk split of compressed input round-trips")
+    func threeChunkSplit() throws {
+        let payload = Bytes(Array(
+            "The quick brown fox jumps over the lazy dog.".utf8))
+        let compressed = try Brotli.compress(payload)
+        let bytes = Array(compressed)
+        let third = bytes.count / 3
+        let chunk1 = Bytes(Array(bytes[0..<third]))
+        let chunk2 = Bytes(Array(bytes[third..<(2 * third)]))
+        let chunk3 = Bytes(Array(bytes[(2 * third)..<bytes.count]))
+        var decoder = Brotli.Streaming.Decoder()
+        decoder.update(chunk1)
+        decoder.update(chunk2)
+        decoder.update(chunk3)
+        let plain = try decoder.finish()
+        #expect(Array(plain) == Array(payload))
+    }
+
+    @Test("tiny 1-byte chunks round-trip")
+    func tinyOneByteChunks() throws {
+        let payload = Bytes(Array("hello world".utf8))
+        let compressed = try Brotli.compress(payload)
+        var decoder = Brotli.Streaming.Decoder()
+        for byte in compressed {
+            decoder.update(Bytes([byte]))
+        }
+        let plain = try decoder.finish()
+        #expect(Array(plain) == Array(payload))
+    }
+
+    // MARK: - Quality coverage
+
+    @Test("decode .fastest-quality output round-trips")
+    func fastestQualityRoundTrip() throws {
+        let payload = Bytes(Array(
+            "The quick brown fox jumps over the lazy dog.".utf8))
+        let compressed = try Brotli.compress(payload, quality: .fastest)
+        var decoder = Brotli.Streaming.Decoder()
+        decoder.update(compressed)
+        let plain = try decoder.finish()
+        #expect(Array(plain) == Array(payload))
+    }
+
+    @Test("decode .smallest-quality output round-trips")
+    func smallestQualityRoundTrip() throws {
+        let payload = Bytes(Array(
+            "The quick brown fox jumps over the lazy dog.".utf8))
+        let compressed = try Brotli.compress(payload, quality: .smallest)
+        var decoder = Brotli.Streaming.Decoder()
+        decoder.update(compressed)
+        let plain = try decoder.finish()
+        #expect(Array(plain) == Array(payload))
+    }
+
+    // MARK: - Error cases
+
+    @Test("truncated input throws")
+    func truncatedInputThrows() throws {
+        let payload = Bytes(Array(
+            "The quick brown fox jumps over the lazy dog.".utf8))
+        let compressed = try Brotli.compress(payload)
+        let bytes = Array(compressed)
+        // Drop the last few bytes to corrupt the stream.
+        let truncated = Bytes(Array(bytes[0..<(bytes.count - 2)]))
+        var decoder = Brotli.Streaming.Decoder()
+        decoder.update(truncated)
+        do {
+            _ = try decoder.finish()
+            Issue.record("expected throw on truncated input")
+        } catch is BrotliError {
+            // expected
+        }
+    }
+
+    @Test("double-finish throws decoderFinished")
+    func doubleFinishThrows() throws {
+        let payload = Bytes(Array("hello".utf8))
+        let compressed = try Brotli.compress(payload)
+        var decoder = Brotli.Streaming.Decoder()
+        decoder.update(compressed)
+        _ = try decoder.finish()
+        do {
+            _ = try decoder.finish()
+            Issue.record("expected throw on second finish")
+        } catch BrotliError.decoderFinished {
+            // expected
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+    }
+
+    @Test("update after finish is silent no-op")
+    func updateAfterFinishNoOp() throws {
+        let payload = Bytes(Array("hello".utf8))
+        let compressed = try Brotli.compress(payload)
+        var decoder = Brotli.Streaming.Decoder()
+        decoder.update(compressed)
+        let plain = try decoder.finish()
+        #expect(Array(plain) == Array(payload))
+        // update on finished decoder: silent no-op (no throw).
+        decoder.update(Bytes(Array("garbage".utf8)))
+        // Double-finish still throws decoderFinished.
+        do {
+            _ = try decoder.finish()
+            Issue.record("expected throw on second finish")
+        } catch BrotliError.decoderFinished {
+            // expected
+        }
+    }
+
+    // MARK: - Edge cases
+
+    @Test("empty chunk in middle is no-op")
+    func emptyChunkInMiddle() throws {
+        let payload = Bytes(Array("hello world".utf8))
+        let compressed = try Brotli.compress(payload)
+        let bytes = Array(compressed)
+        let mid = bytes.count / 2
+        var decoder = Brotli.Streaming.Decoder()
+        decoder.update(Bytes(Array(bytes[0..<mid])))
+        decoder.update(Bytes())  // no-op
+        decoder.update(Bytes(Array(bytes[mid..<bytes.count])))
+        let plain = try decoder.finish()
+        #expect(Array(plain) == Array(payload))
+    }
+
+    @Test("single-byte payload round-trip")
+    func singleBytePayload() throws {
+        let payload = Bytes([0x5A])
+        let compressed = try Brotli.compress(payload)
+        var decoder = Brotli.Streaming.Decoder()
+        decoder.update(compressed)
+        let plain = try decoder.finish()
+        #expect(Array(plain) == Array(payload))
+    }
+
+    // MARK: - Equivalence with one-shot
+
+    @Test("streaming decode equals Brotli.decode one-shot")
+    func streamingEqualsOneShot() throws {
+        let payload = Bytes(Array(
+            "The quick brown fox jumps over the lazy dog.".utf8))
+        let compressed = try Brotli.compress(payload)
+        let oneShot = try Brotli.decode(compressed)
+        var decoder = Brotli.Streaming.Decoder()
+        decoder.update(compressed)
+        let streamed = try decoder.finish()
+        #expect(Array(streamed) == Array(oneShot))
+    }
+}
