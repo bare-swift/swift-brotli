@@ -1,6 +1,6 @@
 # ``Brotli``
 
-RFC 7932 Brotli codec — decoder (v0.1) + one-shot encoder (v0.2) + streaming encoder (v0.3) + streaming decoder (v0.5). Sendable, Foundation-free.
+RFC 7932 Brotli codec — decoder (v0.1) + one-shot encoder (v0.2) + streaming encoder (v0.3) + streaming decoder (v0.5) + true memory-streaming decode (v0.6). Sendable, Foundation-free.
 
 ## Overview
 

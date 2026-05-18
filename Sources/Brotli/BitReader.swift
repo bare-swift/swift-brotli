@@ -9,14 +9,57 @@ import Bytes
 /// values pack the lower-order bits before higher-order. Bytes are
 /// consumed in stream order. Matches DEFLATE's bit ordering, so the
 /// implementation mirrors swift-deflate's `BitReader`.
+///
+/// v0.6: `bytes` is mutable to support streaming inflate via
+/// ``append(_:)`` and ``snapshot()`` / ``restore(_:)``. v0.1-v0.5
+/// one-shot callers construct once and never append; semantics
+/// preserved byte-for-byte.
 struct BitReader {
-    let bytes: ContiguousArray<UInt8>
-    private var bytePos: Int = 0
-    private(set) var bitsInBuffer: Int = 0
-    private var buffer: UInt64 = 0
+    var bytes: ContiguousArray<UInt8>
+    var bytePos: Int = 0
+    var bitsInBuffer: Int = 0
+    var buffer: UInt64 = 0
 
     init(_ source: Bytes) {
         self.bytes = source.storage
+    }
+
+    init() {
+        self.bytes = ContiguousArray<UInt8>()
+    }
+
+    /// Append more compressed bytes to the underlying buffer. Position
+    /// and bit-buffer state are preserved. Used by ``StreamingDecoder``
+    /// to extend the input as new chunks arrive.
+    mutating func append(_ chunk: ContiguousArray<UInt8>) {
+        bytes.append(contentsOf: chunk)
+    }
+
+    /// Snapshot of read position state for streaming rewind on
+    /// truncated reads.
+    struct Snapshot {
+        let bytePos: Int
+        let bitsInBuffer: Int
+        let buffer: UInt64
+    }
+
+    func snapshot() -> Snapshot {
+        Snapshot(bytePos: bytePos, bitsInBuffer: bitsInBuffer, buffer: buffer)
+    }
+
+    mutating func restore(_ s: Snapshot) {
+        self.bytePos = s.bytePos
+        self.bitsInBuffer = s.bitsInBuffer
+        self.buffer = s.buffer
+    }
+
+    /// True if `count` whole bytes are available after byte-alignment
+    /// (combined: full bytes still in the bit buffer plus unread bytes
+    /// in `bytes`). Used by streaming uncompressed-metablock decode to
+    /// read what's available without throwing on partial input.
+    func availableBytesAligned() -> Int {
+        let bufferedWholeBytes = bitsInBuffer / 8
+        return bufferedWholeBytes + (bytes.count - bytePos)
     }
 
     /// Read `count` bits (`count <= 32`) as an unsigned integer.

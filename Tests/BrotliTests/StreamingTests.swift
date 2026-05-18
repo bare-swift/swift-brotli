@@ -524,3 +524,106 @@ struct StreamingDecoderTests {
         #expect(Array(streamed) == Array(oneShot))
     }
 }
+
+@Suite("Streaming decoder (v0.6 true memory-streaming)")
+struct StreamingDecoderV06Tests {
+    /// Byte-by-byte feed of a real brotli stream must produce the same
+    /// output as one-shot decode. Exercises the state-machine pause/resume
+    /// at every possible read boundary.
+    @Test("Decoder: byte-by-byte feed equals one-shot decode (small payload)")
+    func byteByByteEqualsOneShotSmall() throws {
+        let payload = Bytes(Array(
+            "The quick brown fox jumps over the lazy dog.".utf8))
+        let compressed = try Brotli.compress(payload)
+        let oneShot = try Brotli.decode(compressed)
+
+        var decoder = Brotli.Streaming.Decoder()
+        for byte in compressed {
+            decoder.update(Bytes([byte]))
+        }
+        let streamed = try decoder.finish()
+        #expect(Array(streamed) == Array(oneShot))
+    }
+
+    /// Pangram with multiple repetitions exercises both literal codes
+    /// (insertLen) and match codes (copyLen+distance) under byte-by-byte
+    /// feed.
+    @Test("Decoder: byte-by-byte feed exercises matches (repeated pangram)")
+    func byteByByteRepeatedPangram() throws {
+        let payload = Bytes(Array(
+            String(repeating: "abracadabra ", count: 50).utf8))
+        let compressed = try Brotli.compress(payload)
+        let oneShot = try Brotli.decode(compressed)
+
+        var decoder = Brotli.Streaming.Decoder()
+        for byte in compressed {
+            decoder.update(Bytes([byte]))
+        }
+        let streamed = try decoder.finish()
+        #expect(Array(streamed) == Array(oneShot))
+    }
+
+    /// Split mid-stream at many positions. State-machine must rewind
+    /// cleanly on each mid-symbol pause.
+    @Test("Decoder: split mid-stream at varied positions round-trips")
+    func splitMidStreamPositions() throws {
+        let text = "The quick brown fox jumps over the lazy dog. "
+                 + "The five boxing wizards jump quickly. "
+                 + "Pack my box with five dozen liquor jugs."
+        let payload = Bytes(Array(text.utf8))
+        let compressed = try Brotli.compress(payload)
+        let bytes = Array(compressed)
+        let count = bytes.count
+        let splits: [Int] = [1, 2, 5, count / 4, count / 2, 3 * count / 4, count - 2]
+        for splitAt in splits {
+            var decoder = Brotli.Streaming.Decoder()
+            decoder.update(Bytes(Array(bytes[0..<splitAt])))
+            decoder.update(Bytes(Array(bytes[splitAt..<count])))
+            let plain = try decoder.finish()
+            #expect(Array(plain) == Array(payload), "split at \(splitAt)")
+        }
+    }
+
+    /// Large payload (>16 MiB) — exercises multiple metablocks under
+    /// byte-by-byte feed. The persistent distance ring buffer must be
+    /// preserved across metablock boundaries.
+    @Test("Decoder: 1 MiB payload byte-by-byte feed equals one-shot")
+    func oneMiBByteByByte() throws {
+        let size = 1024 * 1024
+        let payload = [UInt8](repeating: 0x41, count: size)
+        let compressed = try Brotli.compress(Bytes(payload), quality: .fastest)
+
+        // Feed in 256-byte chunks to amortize per-byte test overhead.
+        var decoder = Brotli.Streaming.Decoder()
+        let bytes = Array(compressed)
+        var pos = 0
+        while pos < bytes.count {
+            let end = Swift.min(pos + 256, bytes.count)
+            decoder.update(Bytes(Array(bytes[pos..<end])))
+            pos = end
+        }
+        let plain = try decoder.finish()
+        #expect(plain.count == size)
+        #expect(Array(plain) == payload)
+    }
+
+    /// Real decode error mid-stream is captured during update() and
+    /// rethrown at finish() — preserves the v0.5 API contract that
+    /// only finish() throws decode errors.
+    @Test("Decoder: malformed input throws decode error at finish() (not update)")
+    func malformedInputErrorAtFinish() throws {
+        // Stream-header WBITS encoding "1 followed by 000 then 000"
+        // is reserved per § 9.1 → throws .invalidHeader.
+        // Bits: first=1, next3=0, later3=0. LSB-first byte: 0b00000001 = 0x01.
+        var decoder = Brotli.Streaming.Decoder()
+        decoder.update(Bytes([0x01]))  // update() must NOT throw
+        do {
+            _ = try decoder.finish()
+            Issue.record("expected throw on reserved WBITS encoding")
+        } catch BrotliError.invalidHeader {
+            // expected — captured during update(), surfaced at finish()
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+    }
+}

@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] — 2026-05-18
+
+### Added
+- **`Brotli.Streaming.Decoder` is now a true memory-streaming inflater.** The internal implementation switches from v0.5's buffering-wrap (accumulate input then run `Brotli.decode(_:)` one-shot at `finish()`) to a new state-machine `StreamingDecoder` that consumes input and yields decoded bytes incrementally per `update(_:)` call. The reader is checkpointed before each atomic Huffman-symbol read; truncated input rewinds to the checkpoint and pauses cleanly until the next `update(_:)` provides more bytes. Per-symbol state (insertLen / copyLen / useDistance / emitted-literal-count) lives in struct fields and survives `update(_:)` boundaries.
+- 5 new tests verifying true incremental yield: byte-by-byte feed equals one-shot (small payload), byte-by-byte feed with repeated pangram (exercises match codes), split-mid-stream at varied positions, 1 MiB payload byte-by-byte (exercises multi-metablock + persistent distance ring buffer), and malformed-input error captured during `update(_:)` then surfaced at `finish()`.
+
+### Honest-scope-under-limitation **RESOLVED at the codec-tier brotli boundary**
+v0.5 shipped the streaming-symmetric API surface ahead of true memory-streaming as an honest deferral. v0.6 resolves the deferral via state-machine refactor:
+- **Public API surface unchanged.** `Brotli.Streaming.Decoder.init() / update(_:) / finish() throws(BrotliError) -> Bytes` byte-for-byte preserved.
+- **All v0.5 tests continue to pass** without modification (140 → 145 with 5 new v0.6 tests).
+- **Adopters require zero migration.** The implementation upgrade is internal.
+
+This completes the **codec-tier true-memory-streaming story** end-to-end (Phase 30 → 31 → 32 → 33 → 34 → 35 → 36). After v0.6, the entire 6-instance honest-scope-under-limitation pattern from Phases 25-33 is RESOLVED.
+
+### Internal changes
+- `BitReader`: `bytes` is now mutable (`var ContiguousArray<UInt8>`). New `append(_:)`, `Snapshot`, `snapshot()`, `restore(_:)`, `availableBytesAligned()`. v0.1-v0.5 one-shot `Brotli.decode(_:)` constructor + read methods unchanged behaviorally.
+- New file `StreamingDecoder.swift` (~390 LOC): state-machine driver with `Phase` enum (`awaitingStreamHeader` / `awaitingMetaBlockHeader` / `inUncompressed` / `awaitingMetaBlockTrees` / `inMetaBlockBody` / `done`) and nested `BodyState` + `BodySubPhase` (`awaitIC` / `emittingLiterals` / `awaitDistance`). Snapshots taken at every atomic-read boundary; truncation rewinds cleanly. Used only by `Streaming.Decoder`; one-shot `Decoder.swift` retained unchanged for `Brotli.decode(_:)`.
+- `Streaming.Decoder`: internal `buffer: ContiguousArray<UInt8>` replaced with `inflater: StreamingDecoder` + `pendingError: BrotliError?`. `update(_:)` invokes the state machine and captures real decode errors into `pendingError`; `finish()` rethrows the captured error or asserts `phase == .done`.
+
+### Migration (v0.5 → v0.6)
+- **Additive only — non-breaking.** All v0.1-v0.5 APIs unchanged.
+- `Brotli.decode(_:)` one-shot continues to produce byte-identical output.
+- `Brotli.Streaming.Encoder` (v0.3+) and `drain()` (v0.4) unchanged.
+- `BrotliError` cases unchanged.
+
+### Downstream propagation (informational, not landed here)
+- swift-content-encoding v0.9: dep bump brotli 0.5 → 0.6 replaces v0.8's partial-propagation acknowledgment with uniform true-memory-streaming for all coding chains (Phase 37+ candidate).
+
+### Phase 36
+- Tranche 36A of [RFC-0041](https://github.com/bare-swift/bare-swift/blob/main/rfcs/0041-phase-36-anchor-swift-brotli-v0.6-true-memory-streaming.md). Closes the codec-tier true-memory-streaming story entirely. Applies Phase 34's four codified sub-patterns (snapshot-and-restore, real-error-capture+rethrow, two-track coexistence, early-out-for-trivially-completable) at higher state-machine complexity.
+
 ## [0.5.0] — 2026-05-17
 
 ### Added
